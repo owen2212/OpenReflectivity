@@ -18,6 +18,11 @@ find_package(OpenGL REQUIRED)
 
 add_executable(app
     src/main.cpp
+    src/rsl/rsl_wrapper.cpp
+)
+
+target_include_directories(app PRIVATE
+    src
 )
 
 file(GLOB RSL_SOURCES CONFIGURE_DEPENDS
