@@ -50,6 +50,12 @@ class RadarData{
         // RAII - no default constructor
         RadarData() = delete;
         RadarData(const std::string& file_path, const std::string& radar_site);
+        /**
+         * @fn get_product
+         * Gets the entirety of a radar product (reflectivity, velocity, sw)
+         * @param product_type  PRODUCT_TYPE enum indicatinng product selection
+         * @returns Product object with the radar data
+         */
         Product get_product(PRODUCT_TYPE product_type);
 
     private:
