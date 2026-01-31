@@ -32,8 +32,17 @@ target_include_directories(rsl PUBLIC
     external/rsl
 )
 
+target_compile_definitions(rsl PRIVATE
+    WSR88D_SITE_INFO_FILE=\"${CMAKE_SOURCE_DIR}/external/rsl/wsr88d_locations.dat\"
+)
+
 target_link_libraries(rsl PUBLIC
     m
+)
+
+target_compile_options(rsl PRIVATE
+    $<$<C_COMPILER_ID:MSVC>:/w>
+    $<$<NOT:$<C_COMPILER_ID:MSVC>>:-w>
 )
 
 target_link_libraries(app PRIVATE
