@@ -20,8 +20,25 @@ add_executable(app
     src/main.cpp
 )
 
+file(GLOB RSL_SOURCES CONFIGURE_DEPENDS
+    external/rsl/*.c
+)
+
+add_library(rsl STATIC
+    ${RSL_SOURCES}
+)
+
+target_include_directories(rsl PUBLIC
+    external/rsl
+)
+
+target_link_libraries(rsl PUBLIC
+    m
+)
+
 target_link_libraries(app PRIVATE
     glad
+    rsl
     glfw
     OpenGL::GL
 )

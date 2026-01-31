@@ -1,0 +1,11 @@
+# OpenReflectivity
+An open source NEXRAD level II renderer
+
+## Third-party
+
+This project vendors the NASA/TRMM Radar Software Library (RSL) for decoding
+WSR-88D Level II radar data.
+
+RSL is licensed under the GNU Library General Public License (LGPL), and its
+license and notices are preserved in `external/rsl/` (see `LGPL`, `GPL`, and
+`Copyright`).
