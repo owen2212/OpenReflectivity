@@ -1,6 +1,4 @@
 .vscode/
 build/
-python_test/
 planning/
 examples/
-*Zone.Identifier*
