@@ -27,6 +27,10 @@ RadarData::RadarData(const std::string& file_path, const std::string& radar_site
 
 }
 
+/**
+ * Implementation
+ * Creates Product -> Scans -> Radials
+ */
 Product RadarData::get_product(PRODUCT_TYPE product_type) {
     Product p;
 
