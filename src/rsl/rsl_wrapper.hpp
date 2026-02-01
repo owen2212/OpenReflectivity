@@ -23,6 +23,8 @@ enum PRODUCT_TYPE{
 typedef struct {
     std::vector<float> gates;
     float azimuth;
+    float range_bin1;
+    float gate_size;
     // TODO: add metadata (azimuth angle, etc.)
 } Radial;
 
