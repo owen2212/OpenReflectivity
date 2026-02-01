@@ -10,18 +10,28 @@ extern "C" {
 
 namespace rsl {
 
+struct RadarHandle{
+    Radar *r = nullptr;
+};
+
+static std::vector<Scan> get_scans_from_vol(Volume *vol);
+static std::vector<Radial> get_radials_from_sweep(Sweep *sweep);
+
 /**
  * Implementation
  * Custom deleter for Radar to enforce RAII with unique_ptr
  */
-void RadarData::RadarDeleter::operator()(Radar *r) const noexcept{
-    if(r) RSL_free_radar(r);
+void RadarData::RadarDeleter::operator()(RadarHandle *r) const noexcept{
+    if(r){
+        RSL_free_radar(r->r);
+        delete r;
+    }
 }
 
 RadarData::RadarData(const std::string& file_path, const std::string& radar_site)
-    : radar_ptr(RSL_wsr88d_to_radar(const_cast<char*>(file_path.c_str()), const_cast<char*>(radar_site.c_str())))
+    : radar_ptr(new RadarHandle{RSL_wsr88d_to_radar(const_cast<char*>(file_path.c_str()), const_cast<char*>(radar_site.c_str()))})
 {
-    if(!radar_ptr){
+    if(!radar_ptr || !radar_ptr->r){
         throw std::runtime_error("Could not load level 2 archive file: " + file_path);
     }
 
@@ -36,14 +46,14 @@ Product RadarData::get_product(PRODUCT_TYPE product_type) {
 
     Volume *vol = nullptr;
     switch(product_type){
-        case PRODUCT_TYPE::REFLECTIVITY:
-            vol = radar_ptr->v[DZ_INDEX];
+        case REFLECTIVITY:
+            vol = radar_ptr->r->v[DZ_INDEX];
             break;
-        case PRODUCT_TYPE::VELOCITY:
-            vol = radar_ptr->v[VL_INDEX];
+        case VELOCITY:
+            vol = radar_ptr->r->v[VL_INDEX];
             break;
-        case PRODUCT_TYPE::SPECTRAL_WIDTH:
-            vol = radar_ptr->v[SW_INDEX];
+        case SPECTRAL_WIDTH:
+            vol = radar_ptr->r->v[SW_INDEX];
             break;
         default:
             throw std::runtime_error("Product type not supported");
@@ -57,7 +67,7 @@ Product RadarData::get_product(PRODUCT_TYPE product_type) {
     return p;
 }
 
-std::vector<Scan> get_scans_from_vol(Volume *vol){
+static std::vector<Scan> get_scans_from_vol(Volume *vol){
     std::vector<Scan> scans;
 
     for(int i=0; i<vol->h.nsweeps; ++i){ 
@@ -72,7 +82,7 @@ std::vector<Scan> get_scans_from_vol(Volume *vol){
     return scans;
 }
 
-std::vector<Radial> get_radials_from_sweep(Sweep *sweep){
+static std::vector<Radial> get_radials_from_sweep(Sweep *sweep){
     std::vector<Radial> radials;
 
     // Go thru each radial

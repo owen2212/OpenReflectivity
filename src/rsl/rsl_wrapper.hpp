@@ -5,15 +5,13 @@
 #include <string>
 #include <vector>
 
-// Forward declaration
-struct Radar;
-struct Volume;
-struct Sweep;
-
 /**
  * Namespace for all RSL wrapper utilities 
  */
 namespace rsl{
+
+// Forward declaration for opaque handle (defined in .cpp)
+struct RadarHandle;
 
 enum PRODUCT_TYPE{
     REFLECTIVITY,
@@ -40,10 +38,6 @@ typedef struct {
     std::vector<Scan> scans;
 } Product;
 
-// Generation functions for above typedefs
-std::vector<Scan> get_scans_from_vol(Volume *vol);
-std::vector<Radial> get_radials_from_sweep(Sweep *sweep);
-
 // RAII wrapper around Radar*
 class RadarData{
     public:
@@ -61,9 +55,9 @@ class RadarData{
     private:
         // Deleter functor for Radar
         struct RadarDeleter{
-            void operator()(Radar *r) const noexcept;
+            void operator()(RadarHandle *r) const noexcept;
         };
-        std::unique_ptr<Radar, RadarDeleter> radar_ptr;
+        std::unique_ptr<RadarHandle, RadarDeleter> radar_ptr;
 };
 
 };
