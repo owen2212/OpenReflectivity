@@ -73,6 +73,7 @@ static std::vector<Scan> get_scans_from_vol(Volume *vol){
     for(int i=0; i<vol->h.nsweeps; ++i){ 
         Scan scan;
         Sweep *sweep = vol->sweep[i];
+        if(!sweep) continue;
         std::vector<Radial> radials = get_radials_from_sweep(sweep);
         scan.radials = radials; 
         scan.elevation = sweep->h.elev;
@@ -90,15 +91,23 @@ static std::vector<Radial> get_radials_from_sweep(Sweep *sweep){
         Radial radial;
         std::vector<float> gates;
         Ray *ray = sweep->ray[i];
+        if(!ray) continue;
+        if(!ray->h.f) continue;
         // Go thru each gate and convert to float 
         for(int j=0; j<ray->h.nbins; ++j){
             Range pre_gate = ray->range[j]; // Range is unsigned short
-            float gate = sweep->h.f(pre_gate);
+            float gate;
+            if(pre_gate == BADVAL || pre_gate == RFVAL || pre_gate == APFLAG || pre_gate == APFLAG)
+                gate = 0.0f;
+            else
+                gate = sweep->h.f(pre_gate);
             gates.push_back(gate);
         }
 
         radial.gates = gates;
         radial.azimuth = ray->h.azimuth;
+        radial.gate_size = ray->h.gate_size;
+        radial.range_bin1 = ray->h.range_bin1;
         radials.push_back(radial);
     }
 
