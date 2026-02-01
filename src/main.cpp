@@ -1,12 +1,11 @@
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-extern "C" {
-#include "rsl.h"
-}
-
-#include <cstdio>
-#include <cstdlib>
+#include "rsl/rsl_wrapper.hpp"
 
 
 int main() {
@@ -39,19 +38,12 @@ int main() {
     std::printf("OpenGL Renderer: %s\n", glGetString(GL_RENDERER));
     std::printf("OpenGL Version : %s\n", glGetString(GL_VERSION));
 
-    // Check RSL
-    const char* level2_path = "examples/KTLX20130520_000122_V06";
-    const char* site_id = "KTLX";
+    // RSL wrapper
+    const std::string level2_path = "examples/KTLX20130520_000122_V06";
+    const std::string site_id = "KTLX";
 
-    Radar* radar = RSL_wsr88d_to_radar(const_cast<char*>(level2_path),
-                                       const_cast<char*>(site_id));
-    if (!radar) {
-        std::fprintf(stderr, "Failed to load Level II file: %s\n", level2_path);
-    } else {
-        std::printf("Loaded radar site: %.4s\n", radar->h.name);
-        std::printf("Volumes: %d\n", radar->h.nvolumes);
-        RSL_free_radar(radar);
-    }
+    rsl::RadarData radar_data(level2_path, site_id);
+    rsl::Product ref = radar_data.get_product(rsl::REFLECTIVITY);
 
     while (!glfwWindowShouldClose(window)) {
         glViewport(0, 0, 800, 600);
