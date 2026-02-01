@@ -13,6 +13,8 @@ namespace rsl{
 // Forward declaration for opaque handle (defined in .cpp)
 struct RadarHandle;
 
+const float SENTINEL = -9999.9f;
+
 enum PRODUCT_TYPE{
     REFLECTIVITY,
     VELOCITY,

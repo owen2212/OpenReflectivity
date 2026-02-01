@@ -45,6 +45,10 @@ int main() {
     rsl::RadarData radar_data(level2_path, site_id);
     rsl::Product ref = radar_data.get_product(rsl::REFLECTIVITY);
 
+    for(float &f : ref.scans.at(0).radials.at(0).gates){
+        std::printf("%f\n", f);
+    }
+
     while (!glfwWindowShouldClose(window)) {
         glViewport(0, 0, 800, 600);
         glClearColor(0.08f, 0.10f, 0.12f, 1.0f);

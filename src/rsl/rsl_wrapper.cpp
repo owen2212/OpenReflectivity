@@ -1,6 +1,7 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <cmath>
 
 #include "rsl_wrapper.hpp"
 // C API
@@ -14,8 +15,8 @@ struct RadarHandle{
     Radar *r = nullptr;
 };
 
-static std::vector<Scan> get_scans_from_vol(Volume *vol);
-static std::vector<Radial> get_radials_from_sweep(Sweep *sweep);
+static std::vector<Scan> get_scans_from_vol(const Volume *vol);
+static std::vector<Radial> get_radials_from_sweep(const Sweep *sweep, const Volume *vol);
 
 /**
  * Implementation
@@ -67,14 +68,14 @@ Product RadarData::get_product(PRODUCT_TYPE product_type) {
     return p;
 }
 
-static std::vector<Scan> get_scans_from_vol(Volume *vol){
+static std::vector<Scan> get_scans_from_vol(const Volume *vol){
     std::vector<Scan> scans;
 
     for(int i=0; i<vol->h.nsweeps; ++i){ 
         Scan scan;
         Sweep *sweep = vol->sweep[i];
         if(!sweep) continue;
-        std::vector<Radial> radials = get_radials_from_sweep(sweep);
+        std::vector<Radial> radials = get_radials_from_sweep(sweep, vol);
         scan.radials = radials; 
         scan.elevation = sweep->h.elev;
         scans.push_back(scan);
@@ -83,7 +84,15 @@ static std::vector<Scan> get_scans_from_vol(Volume *vol){
     return scans;
 }
 
-static std::vector<Radial> get_radials_from_sweep(Sweep *sweep){
+// Prefer ray->h.f, then sweep->h.f, then vol->h.f.
+static inline float (*pick_f(const Ray* ray, const Sweep* sweep, const Volume* vol))(Range) {
+    if (ray && ray->h.f) return ray->h.f;
+    if (sweep && sweep->h.f) return sweep->h.f;
+    if (vol && vol->h.f) return vol->h.f;
+    return nullptr;
+}
+
+static std::vector<Radial> get_radials_from_sweep(const Sweep *sweep, const Volume *vol){
     std::vector<Radial> radials;
 
     // Go thru each radial
@@ -92,15 +101,13 @@ static std::vector<Radial> get_radials_from_sweep(Sweep *sweep){
         std::vector<float> gates;
         Ray *ray = sweep->ray[i];
         if(!ray) continue;
-        if(!ray->h.f) continue;
+        auto f = pick_f(ray, sweep, vol);
+        if(!f) continue;
         // Go thru each gate and convert to float 
         for(int j=0; j<ray->h.nbins; ++j){
-            Range pre_gate = ray->range[j]; // Range is unsigned short
-            float gate;
-            if(pre_gate == BADVAL || pre_gate == RFVAL || pre_gate == APFLAG || pre_gate == APFLAG)
-                gate = 0.0f;
-            else
-                gate = sweep->h.f(pre_gate);
+            float gate = sweep->h.f(ray->range[j]);
+            if(gate == BADVAL || gate == RFVAL || gate == APFLAG || gate == NOECHO)
+                gate = SENTINEL;
             gates.push_back(gate);
         }
 
