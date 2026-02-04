@@ -3,14 +3,21 @@
 ## Project summary
 - OpenGL-based NEXRAD Level II renderer.
 - Uses a vendored copy of NASA/TRMM RSL (Radar Software Library) for Level II decode (WSR-88D) under LGPL.
+- Windowing via GLFW, GL loading via GLAD, CMake build.
 
 ## Repository layout
+- `README`: short project summary + third-party notice.
+- `build.sh`: convenience build script.
+- `run.sh`: convenience run script.
+- `examples/`: sample Level II file(s) (e.g., `KTLX20130520_000122_V06`).
 - `src/`
   - `main.cpp`: GL init + main loop. Includes a minimal RSL load example.
+  - `gl/`: OpenGL helper wrappers (`buffer.*`, `shader.*`).
   - `rsl/`: wrapper layer you create (e.g., `rsl_wrapper.hpp/.cpp`).
 - `external/`
   - `glad/`: OpenGL loader.
   - `rsl/`: vendored RSL sources (pruned to Level II ingest + core).
+    - `wsr88d_decode_ar2v/`: retained helper program sources (not built in CMake).
 
 ## RSL integration details
 - RSL is C; include with `extern "C" { #include "rsl.h" }` in **.cpp** files, not headers.
@@ -18,20 +25,25 @@
   - `WSR88D_SITE_INFO_FILE="${CMAKE_SOURCE_DIR}/external/rsl/wsr88d_locations.dat"`
 - The RSL sources are compiled into a static library target `rsl`.
 - RSL warnings are suppressed only for that target.
+- Wrapper (`src/rsl/rsl_wrapper.*`) converts RSL volumes into `Product -> Scan -> Radial` data with sentinel `-9999.0f` for missing gates.
 
 ## Build system (CMake)
 - `app` links: `glad`, `rsl`, `glfw`, `OpenGL::GL`.
+- `app` sources include `src/gl/buffer.cpp` and `src/gl/shader.cpp`.
 - `rsl` target:
   - sources: `external/rsl/*.c` (via glob)
   - include: `external/rsl`
   - compile defs: `WSR88D_SITE_INFO_FILE=...`
   - compile options: `-w` or MSVC `/w` to suppress warnings
+- Build type defaults to `Debug` if not specified.
+- Requires `glfw3` and `OpenGL` packages available to CMake.
 
 ## Current behavior
 - Example Level II load in `src/main.cpp` using:
   - file: `examples/KTLX20130520_000122_V06`
   - site id: `KTLX`
 - If you move the file, update the path in `main.cpp`.
+- `main.cpp` sets up a GLFW 3.3 core context and clears the window each frame; no rendering yet.
 
 ## Pruned RSL files
 - Docs/examples/autotools assets removed.
