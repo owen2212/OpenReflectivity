@@ -12,7 +12,7 @@
 - `examples/`: sample Level II file(s) (e.g., `KTLX20130520_000122_V06`).
 - `src/`
   - `main.cpp`: GL init + main loop. Includes a minimal RSL load example.
-  - `gl/`: OpenGL helper wrappers (`buffer.*`, `shader.*`).
+  - `gl/`: OpenGL helper wrappers (`buffer.*`, `shader.*`, `vertex_array.*`).
   - `rsl/`: wrapper layer you create (e.g., `rsl_wrapper.hpp/.cpp`).
 - `external/`
   - `glad/`: OpenGL loader.
@@ -29,7 +29,7 @@
 
 ## Build system (CMake)
 - `app` links: `glad`, `rsl`, `glfw`, `OpenGL::GL`.
-- `app` sources include `src/gl/buffer.cpp` and `src/gl/shader.cpp`.
+- `app` sources include `src/gl/buffer.cpp`, `src/gl/vertex_array.cpp`, and `src/gl/shader.cpp`.
 - `rsl` target:
   - sources: `external/rsl/*.c` (via glob)
   - include: `external/rsl`

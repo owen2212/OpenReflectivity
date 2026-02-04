@@ -24,6 +24,7 @@ add_executable(app
     src/main.cpp
     src/rsl/rsl_wrapper.cpp
     src/gl/buffer.cpp
+    src/gl/vertex_array.cpp
     src/gl/shader.cpp
 )
 
