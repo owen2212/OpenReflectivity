@@ -78,7 +78,7 @@ bool Shader::load_sources(std::string_view vertex_src, std::string_view fragment
         return false;
     }
 
-    if(!(compile_shader(vertex, GL_FRAGMENT_SHADER, fragment_src, log))){
+    if(!(compile_shader(fragment, GL_FRAGMENT_SHADER, fragment_src, log))){
         fprintf(stderr, "Error compiling fragment shader:\n%s\n",log.data());
         glDeleteShader(vertex);
         return false;
