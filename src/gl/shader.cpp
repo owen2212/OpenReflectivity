@@ -79,7 +79,7 @@ bool Shader::load_sources(std::string_view vertex_src, std::string_view fragment
     }
 
     if(!(compile_shader(vertex, GL_FRAGMENT_SHADER, fragment_src, log))){
-        fprintf(stderr, "Error compiling fragment shader:\n%s\n",log);
+        fprintf(stderr, "Error compiling fragment shader:\n%s\n",log.data());
         glDeleteShader(vertex);
         return false;
     }
@@ -99,7 +99,7 @@ bool Shader::load_sources(std::string_view vertex_src, std::string_view fragment
         glGetProgramiv(program, GL_INFO_LOG_LENGTH, &log_len);
         log.resize((size_t) log_len);
         glGetProgramInfoLog(program, log_len, nullptr, log.data());
-        fprintf(stderr, "Error linking shader program:\n%s\n", log);
+        fprintf(stderr, "Error linking shader program:\n%s\n", log.data());
         glDeleteProgram(program);
         return false;
     }
