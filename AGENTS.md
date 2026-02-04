@@ -44,13 +44,18 @@
   - file: `examples/KTLX20130520_000122_V06`
   - site id: `KTLX`
 - If you move the file, update the path in `main.cpp`.
-- `main.cpp` now builds instanced gate data (`GateData`) and per-radial metadata.
+- `main.cpp` builds instanced gate data (`GateData`) and per-radial metadata.
 - Instanced rendering uses a unit quad VBO + per-instance attributes (gate value, gate index, radial index).
-- Radial metadata is packed into a `GL_TEXTURE_BUFFER` (`samplerBuffer`, `GL_RGBA32F`).
+- Radial metadata is packed into a `GL_TEXTURE_BUFFER` (`samplerBuffer`, `GL_RGBA32F`) with:
+  - `x = azimuth_center_deg`
+  - `y = range_bin1`
+  - `z = gate_size`
+  - `w = delta_azimuth_rad`
+- Radials are sorted by azimuth to compute `delta_azimuth`; azimuth is centered (`az + 0.5*delta`) for rendering.
 - Shaders:
-  - `shaders/ref.vert`: polar→Cartesian conversion, unit quad expansion, uses `u_radial_meta`, `u_view_scale`, `u_view_offset`.
+  - `shaders/ref.vert`: polar→Cartesian conversion, azimuth-centered wedge sizing, rotates unit quad, uses `u_radial_meta`, `u_view_scale`, `u_view_offset`.
   - `shaders/ref.frag`: sentinel discard (`-9999.0f`) + simple 3‑color ramp.
-- Viewport now uses framebuffer size each frame (no hardcoded 800x600).
+- Viewport uses framebuffer size each frame (no hardcoded 800x600) and view scale is aspect-correct.
 
 ## Pruned RSL files
 - Docs/examples/autotools assets removed.
