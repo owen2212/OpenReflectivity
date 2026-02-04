@@ -23,6 +23,8 @@ find_package(OpenGL REQUIRED)
 add_executable(app
     src/main.cpp
     src/rsl/rsl_wrapper.cpp
+    src/gl/buffer.cpp
+    src/gl/shader.cpp
 )
 
 target_include_directories(app PRIVATE
