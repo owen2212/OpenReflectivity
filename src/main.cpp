@@ -2,6 +2,8 @@
 #include <cstdlib>
 #include <cstddef>
 #include <string>
+#include <algorithm>
+#include <numeric>
 #include <vector>
 
 #include <glad/glad.h>
@@ -68,6 +70,7 @@ int main() {
 
     std::vector<GateData> initial_gate_layout; // build the layout
     std::vector<RadialMetaData> meta_data_layout;
+    std::vector<float> azimuths_deg;
     float max_range = 0.0f;
     int radial_num = 0;
     for(rsl::Radial &r : ref.scans.at(0).radials){
@@ -76,6 +79,7 @@ int main() {
         m.gate_size = r.gate_size;
         m.range_bin1 = r.range_bin1;
         meta_data_layout.push_back(m);
+        azimuths_deg.push_back(r.azimuth);
         if (!r.gates.empty()) {
             float radial_max = r.range_bin1 + r.gate_size * static_cast<float>(r.gates.size() - 1);
             if (radial_max > max_range) max_range = radial_max;
@@ -136,13 +140,40 @@ int main() {
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0); // quad position
         glEnableVertexAttribArray(0);
 
+        std::vector<float> delta_az_rad(radial_count, 0.0f);
+        std::vector<float> azimuth_center_deg(radial_count, 0.0f);
+        if (!azimuths_deg.empty()) {
+            std::vector<size_t> order(radial_count);
+            std::iota(order.begin(), order.end(), 0);
+            std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+                return azimuths_deg[a] < azimuths_deg[b];
+            });
+
+            for (size_t oi = 0; oi < order.size(); ++oi) {
+                const size_t idx = order[oi];
+                const size_t next_idx = order[(oi + 1) % order.size()];
+                float curr = azimuths_deg[idx];
+                float next = azimuths_deg[next_idx];
+                if (oi + 1 == order.size()) {
+                    next += 360.0f;
+                }
+                float d = next - curr;
+                if (d < 0.0f) d += 360.0f;
+                delta_az_rad[idx] = d * 0.01745329252f;
+                float center = curr + 0.5f * d;
+                if (center >= 360.0f) center -= 360.0f;
+                azimuth_center_deg[idx] = center;
+            }
+        }
+
         std::vector<float> meta_packed;
         meta_packed.reserve(meta_data_layout.size() * 4);
-        for (const RadialMetaData &m : meta_data_layout) {
-            meta_packed.push_back(m.azimuth);
+        for (size_t i = 0; i < meta_data_layout.size(); ++i) {
+            const RadialMetaData &m = meta_data_layout[i];
+            meta_packed.push_back(azimuth_center_deg[i]);
             meta_packed.push_back(m.range_bin1);
             meta_packed.push_back(m.gate_size);
-            meta_packed.push_back(0.0f);
+            meta_packed.push_back(delta_az_rad[i]);
         }
 
         meta_buffer.bind();
@@ -162,16 +193,29 @@ int main() {
 
         shader.use();
         shader.set_int("u_radial_meta", 0);
-        const float scale = (max_range > 0.0f) ? (1.0f / max_range) : 1.0f;
         const int scale_loc = glGetUniformLocation((GLuint)shader.id(), "u_view_scale");
         const int offset_loc = glGetUniformLocation((GLuint)shader.id(), "u_view_offset");
-        if (scale_loc >= 0) glUniform2f(scale_loc, scale, scale);
         if (offset_loc >= 0) glUniform2f(offset_loc, 0.0f, 0.0f);
 
         while (!glfwWindowShouldClose(window)) {
             int fbw = 0, fbh = 0;
             glfwGetFramebufferSize(window, &fbw, &fbh);
             glViewport(0, 0, fbw, fbh);
+            if (scale_loc >= 0) {
+                const float aspect = (fbh > 0) ? (static_cast<float>(fbw) / static_cast<float>(fbh)) : 1.0f;
+                float sx = 1.0f;
+                float sy = 1.0f;
+                if (max_range > 0.0f) {
+                    if (aspect >= 1.0f) {
+                        sx = 1.0f / max_range;
+                        sy = aspect / max_range;
+                    } else {
+                        sx = 1.0f / (max_range * aspect);
+                        sy = 1.0f / max_range;
+                    }
+                }
+                glUniform2f(scale_loc, sx, sy);
+            }
             glClearColor(0.08f, 0.10f, 0.12f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
 

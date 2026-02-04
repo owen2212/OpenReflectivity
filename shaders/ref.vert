@@ -17,11 +17,17 @@ void main() {
     float range_bin1 = m.y;
     float gate_size = m.z;
 
-    float range = range_bin1 + gate_size * float(gate_idx);
+    float delta_az = m.w;
+    float range_center = range_bin1 + gate_size * (float(gate_idx) + 0.5);
     float az = radians(azimuth_deg);
 
-    vec2 radial_pos = vec2(cos(az), sin(az)) * range;
-    vec2 cell_pos = radial_pos + in_pos * vec2(gate_size, gate_size);
+    float cell_height = gate_size;
+    float cell_width = range_center * delta_az;
+
+    vec2 radial_center = vec2(cos(az), sin(az)) * range_center;
+    vec2 local = in_pos * vec2(cell_width, cell_height);
+    mat2 rot = mat2(cos(az), -sin(az), sin(az), cos(az));
+    vec2 cell_pos = radial_center + rot * local;
 
     vec2 ndc = cell_pos * u_view_scale + u_view_offset;
     gl_Position = vec4(ndc, 0.0, 1.0);

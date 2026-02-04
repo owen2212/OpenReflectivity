@@ -10,6 +10,7 @@
 - `build.sh`: convenience build script.
 - `run.sh`: convenience run script.
 - `examples/`: sample Level II file(s) (e.g., `KTLX20130520_000122_V06`).
+- `shaders/`: GLSL sources (e.g., `ref.vert`, `ref.frag`) for instanced reflectivity rendering.
 - `src/`
   - `main.cpp`: GL init + main loop. Includes a minimal RSL load example.
   - `gl/`: OpenGL helper wrappers (`buffer.*`, `shader.*`, `vertex_array.*`).
@@ -43,7 +44,13 @@
   - file: `examples/KTLX20130520_000122_V06`
   - site id: `KTLX`
 - If you move the file, update the path in `main.cpp`.
-- `main.cpp` sets up a GLFW 3.3 core context and clears the window each frame; no rendering yet.
+- `main.cpp` now builds instanced gate data (`GateData`) and per-radial metadata.
+- Instanced rendering uses a unit quad VBO + per-instance attributes (gate value, gate index, radial index).
+- Radial metadata is packed into a `GL_TEXTURE_BUFFER` (`samplerBuffer`, `GL_RGBA32F`).
+- Shaders:
+  - `shaders/ref.vert`: polar→Cartesian conversion, unit quad expansion, uses `u_radial_meta`, `u_view_scale`, `u_view_offset`.
+  - `shaders/ref.frag`: sentinel discard (`-9999.0f`) + simple 3‑color ramp.
+- Viewport now uses framebuffer size each frame (no hardcoded 800x600).
 
 ## Pruned RSL files
 - Docs/examples/autotools assets removed.
