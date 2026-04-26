@@ -20,6 +20,8 @@ find_package(glfw3 3.3 REQUIRED)
 
 find_package(OpenGL REQUIRED)
 
+find_package(BZip2 REQUIRED)
+
 add_executable(app
     src/main.cpp
     src/rsl/rsl_wrapper.cpp
@@ -50,6 +52,7 @@ target_compile_definitions(rsl PRIVATE
 
 target_link_libraries(rsl PUBLIC
     m
+    BZip2::BZip2
 )
 
 target_compile_options(rsl PRIVATE
