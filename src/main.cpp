@@ -67,6 +67,134 @@ std::vector<unsigned char> build_dbz_lut() {
     return lut;
 }
 
+struct GateData {
+    float gate;
+    int gate_idx;
+    int radial_idx;
+};
+
+struct ScanGpuData {
+    std::vector<GateData> gates;
+    std::vector<float> meta_packed; // 4 floats per radial: az_start_rad, range_bin1, gate_size, delta_az_rad
+    float max_range = 0.0f;
+    size_t radial_count = 0;
+};
+
+ScanGpuData build_scan_gpu_data(const rsl::Scan &scan) {
+    ScanGpuData out;
+    const size_t radial_count = scan.radials.size();
+    out.radial_count = radial_count;
+    if (radial_count == 0) return out;
+
+    std::vector<float> azimuths_deg;
+    std::vector<float> range_bin1_per_radial;
+    std::vector<float> gate_size_per_radial;
+    azimuths_deg.reserve(radial_count);
+    range_bin1_per_radial.reserve(radial_count);
+    gate_size_per_radial.reserve(radial_count);
+
+    for (size_t i = 0; i < radial_count; ++i) {
+        const rsl::Radial &r = scan.radials[i];
+        azimuths_deg.push_back(r.azimuth);
+        range_bin1_per_radial.push_back(r.range_bin1);
+        gate_size_per_radial.push_back(r.gate_size);
+        if (!r.gates.empty()) {
+            float radial_max = r.range_bin1 + r.gate_size * static_cast<float>(r.gates.size());
+            if (radial_max > out.max_range) out.max_range = radial_max;
+        } else if (r.range_bin1 > out.max_range) {
+            out.max_range = r.range_bin1;
+        }
+        const int radial_idx = static_cast<int>(i);
+        for (size_t j = 0; j < r.gates.size(); ++j) {
+            GateData d;
+            d.gate = r.gates[j];
+            d.gate_idx = static_cast<int>(j);
+            d.radial_idx = radial_idx;
+            out.gates.push_back(d);
+        }
+    }
+
+    std::vector<float> delta_az_rad(radial_count, 0.0f);
+    std::vector<float> az_start_rad(radial_count, 0.0f);
+
+    std::vector<size_t> order(radial_count);
+    std::iota(order.begin(), order.end(), 0);
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+        return azimuths_deg[a] < azimuths_deg[b];
+    });
+
+    constexpr float kDeg2Rad = 0.01745329252f;
+    for (size_t oi = 0; oi < order.size(); ++oi) {
+        const size_t idx = order[oi];
+        const size_t next_idx = order[(oi + 1) % order.size()];
+        float curr = azimuths_deg[idx];
+        float next = azimuths_deg[next_idx];
+        if (oi + 1 == order.size()) next += 360.0f;
+        float d = next - curr;
+        if (d < 0.0f) d += 360.0f;
+        delta_az_rad[idx] = d * kDeg2Rad;
+        float start = curr - 0.5f * d;
+        az_start_rad[idx] = start * kDeg2Rad;
+    }
+
+    out.meta_packed.reserve(radial_count * 4);
+    for (size_t i = 0; i < radial_count; ++i) {
+        out.meta_packed.push_back(az_start_rad[i]);
+        out.meta_packed.push_back(range_bin1_per_radial[i]);
+        out.meta_packed.push_back(gate_size_per_radial[i]);
+        out.meta_packed.push_back(delta_az_rad[i]);
+    }
+    return out;
+}
+
+struct OverlayGeometry {
+    std::vector<float> verts;          // x,y world meters
+    std::vector<int> ring_offsets;     // first vertex of each ring
+    std::vector<int> ring_counts;      // vertex count per ring
+    std::vector<float> ring_ranges_km; // for printout / future labels
+    int marker_offset = 0;
+    int marker_count = 0;
+};
+
+OverlayGeometry build_overlay(float max_range_m) {
+    OverlayGeometry o;
+    constexpr int kSegments = 192;
+    constexpr float kTwoPi = 6.28318530718f;
+
+    const std::array<float, 5> ring_km = {25.0f, 50.0f, 100.0f, 150.0f, 200.0f};
+    for (float rk : ring_km) {
+        const float r_m = rk * 1000.0f;
+        if (r_m > max_range_m * 1.05f) continue;
+        const int start = static_cast<int>(o.verts.size() / 2);
+        for (int s = 0; s < kSegments; ++s) {
+            float t = static_cast<float>(s) / static_cast<float>(kSegments);
+            float a = t * kTwoPi;
+            o.verts.push_back(std::cos(a) * r_m);
+            o.verts.push_back(std::sin(a) * r_m);
+        }
+        o.ring_offsets.push_back(start);
+        o.ring_counts.push_back(kSegments);
+        o.ring_ranges_km.push_back(rk);
+    }
+
+    // Site marker: a "+" cross of total span ~10 km, with a small gap at center.
+    const float arm = 5000.0f;
+    const float gap = 800.0f;
+    o.marker_offset = static_cast<int>(o.verts.size() / 2);
+    const float marker_pts[] = {
+        // horizontal
+         gap,  0.0f,   arm, 0.0f,
+        -gap,  0.0f,  -arm, 0.0f,
+        // vertical
+         0.0f,  gap,   0.0f,  arm,
+         0.0f, -gap,   0.0f, -arm,
+    };
+    for (float v : marker_pts) o.verts.push_back(v);
+    o.marker_count = static_cast<int>(sizeof(marker_pts) / sizeof(float) / 2);
+
+    return o;
+}
+
 struct View {
     float offset_x = 0.0f; // in NDC
     float offset_y = 0.0f;
@@ -74,6 +202,10 @@ struct View {
     bool dragging = false;
     double last_cursor_x = 0.0;
     double last_cursor_y = 0.0;
+
+    int scan_idx = 0;
+    int requested_scan_idx = 0;
+    int num_scans = 1;
 };
 
 void cursor_pos_callback(GLFWwindow *win, double xpos, double ypos) {
@@ -124,13 +256,21 @@ void scroll_callback(GLFWwindow *win, double /*xoff*/, double yoff) {
 void key_callback(GLFWwindow *win, int key, int /*sc*/, int action, int /*mods*/) {
     View *v = static_cast<View*>(glfwGetWindowUserPointer(win));
     if (!v) return;
-    if (action != GLFW_PRESS) return;
-    if (key == GLFW_KEY_R) {
+    if (action != GLFW_PRESS && action != GLFW_REPEAT) return;
+    if (action == GLFW_PRESS && key == GLFW_KEY_R) {
         v->offset_x = 0.0f;
         v->offset_y = 0.0f;
         v->zoom = 1.0f;
-    } else if (key == GLFW_KEY_ESCAPE) {
+    } else if (action == GLFW_PRESS && key == GLFW_KEY_ESCAPE) {
         glfwSetWindowShouldClose(win, GLFW_TRUE);
+    } else if (key == GLFW_KEY_LEFT_BRACKET) {
+        int idx = v->requested_scan_idx - 1;
+        if (idx < 0) idx = 0;
+        v->requested_scan_idx = idx;
+    } else if (key == GLFW_KEY_RIGHT_BRACKET) {
+        int idx = v->requested_scan_idx + 1;
+        if (idx >= v->num_scans) idx = v->num_scans - 1;
+        v->requested_scan_idx = idx;
     }
 }
 
@@ -176,62 +316,24 @@ int main() {
     rsl::RadarData radar_data(level2_path, site_id);
     rsl::Product ref = radar_data.get_product(rsl::REFLECTIVITY);
 
-    struct GateData {
-        float gate;
-        int gate_idx;
-        int radial_idx;
-    };
-
-    struct RadialMetaData {
-        float azimuth;
-        float range_bin1;
-        float gate_size;
-    };
-
-    std::vector<GateData> initial_gate_layout;
-    std::vector<RadialMetaData> meta_data_layout;
-    std::vector<float> azimuths_deg;
-    float max_range = 0.0f;
-    int radial_num = 0;
-    for (rsl::Radial &r : ref.scans.at(0).radials) {
-        RadialMetaData m;
-        m.azimuth = r.azimuth;
-        m.gate_size = r.gate_size;
-        m.range_bin1 = r.range_bin1;
-        meta_data_layout.push_back(m);
-        azimuths_deg.push_back(r.azimuth);
-        if (!r.gates.empty()) {
-            float radial_max = r.range_bin1 + r.gate_size * static_cast<float>(r.gates.size());
-            if (radial_max > max_range) max_range = radial_max;
-        } else if (r.range_bin1 > max_range) {
-            max_range = r.range_bin1;
-        }
-        int gate_idx = 0;
-        for (float &f : r.gates) {
-            GateData d;
-            d.radial_idx = radial_num;
-            d.gate = f;
-            d.gate_idx = gate_idx;
-            initial_gate_layout.push_back(d);
-            gate_idx++;
-        }
-        radial_num++;
-    }
-
-    GateData *gate_arr = initial_gate_layout.data();
-    const size_t gate_count = initial_gate_layout.size();
-    const size_t radial_count = meta_data_layout.size();
-    if (gate_count == 0 || radial_count == 0) {
-        std::fprintf(stderr, "No gate data to draw (gates=%zu, radials=%zu)\n",
-                     gate_count, radial_count);
+    if (ref.scans.empty()) {
+        std::fprintf(stderr, "No scans in product\n");
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 1;
     }
 
     View view;
+    view.num_scans = static_cast<int>(ref.scans.size());
     glfwSetWindowUserPointer(window, &view);
     glfwSetCursorPosCallback(window, cursor_pos_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetKeyCallback(window, key_callback);
+
+    std::printf("Loaded %d sweeps. Use [ and ] to switch elevation, R to reset view, Esc to quit.\n",
+                view.num_scans);
+    std::printf("Active sweep: 0 (elevation %.2f deg)\n", ref.scans[0].elevation);
 
     {
         VertexArray vao(true);
@@ -243,8 +345,6 @@ int main() {
 
         vao.bind();
         vbo.bind();
-
-        vbo.set_data(gate_arr, sizeof(GateData) * gate_count, Buffer::Usage::StaticDraw);
         glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(GateData),
                               (void*)offsetof(GateData, gate));
         glVertexAttribIPointer(2, 1, GL_INT, sizeof(GateData),
@@ -273,50 +373,26 @@ int main() {
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
         glEnableVertexAttribArray(0);
 
-        // Compute az_start (radians) and delta_az (radians) per radial.
-        std::vector<float> delta_az_rad(radial_count, 0.0f);
-        std::vector<float> az_start_rad(radial_count, 0.0f);
-        if (!azimuths_deg.empty()) {
-            std::vector<size_t> order(radial_count);
-            std::iota(order.begin(), order.end(), 0);
-            std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-                return azimuths_deg[a] < azimuths_deg[b];
-            });
+        // Initial scan upload.
+        ScanGpuData scan_data = build_scan_gpu_data(ref.scans[view.scan_idx]);
+        size_t gate_count = scan_data.gates.size();
+        size_t radial_count = scan_data.radial_count;
+        float max_range = scan_data.max_range;
 
-            constexpr float kDeg2Rad = 0.01745329252f;
-            for (size_t oi = 0; oi < order.size(); ++oi) {
-                const size_t idx = order[oi];
-                const size_t next_idx = order[(oi + 1) % order.size()];
-                float curr = azimuths_deg[idx];
-                float next = azimuths_deg[next_idx];
-                if (oi + 1 == order.size()) next += 360.0f;
-                float d = next - curr;
-                if (d < 0.0f) d += 360.0f;
-                delta_az_rad[idx] = d * kDeg2Rad;
-                float start = curr - 0.5f * d;
-                az_start_rad[idx] = start * kDeg2Rad;
-            }
-        }
-
-        std::vector<float> meta_packed;
-        meta_packed.reserve(meta_data_layout.size() * 4);
-        for (size_t i = 0; i < meta_data_layout.size(); ++i) {
-            const RadialMetaData &m = meta_data_layout[i];
-            meta_packed.push_back(az_start_rad[i]);
-            meta_packed.push_back(m.range_bin1);
-            meta_packed.push_back(m.gate_size);
-            meta_packed.push_back(delta_az_rad[i]);
-        }
+        vbo.bind();
+        vbo.set_data(scan_data.gates.data(),
+                     sizeof(GateData) * gate_count,
+                     Buffer::Usage::StaticDraw);
 
         meta_buffer.bind();
-        meta_buffer.set_data(meta_packed.data(),
-                             sizeof(float) * meta_packed.size(),
+        meta_buffer.set_data(scan_data.meta_packed.data(),
+                             sizeof(float) * scan_data.meta_packed.size(),
                              Buffer::Usage::StaticDraw);
         glGenTextures(1, &meta_tex);
         glBindTexture(GL_TEXTURE_BUFFER, meta_tex);
         glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, meta_buffer.id());
 
-        // Build & upload dBZ color LUT as a 1D texture.
+        // dBZ color LUT.
         {
             std::vector<unsigned char> lut = build_dbz_lut();
             glGenTextures(1, &dbz_tex);
@@ -345,6 +421,31 @@ int main() {
         const int scale_loc  = glGetUniformLocation((GLuint)shader.id(), "u_view_scale");
         const int offset_loc = glGetUniformLocation((GLuint)shader.id(), "u_view_offset");
 
+        // Overlay (rings + site marker) resources.
+        OverlayGeometry overlay = build_overlay(max_range);
+        VertexArray overlay_vao(true);
+        Buffer overlay_vbo(Buffer::Target::Array);
+        overlay_vao.bind();
+        overlay_vbo.bind();
+        overlay_vbo.set_data(overlay.verts.data(),
+                             sizeof(float) * overlay.verts.size(),
+                             Buffer::Usage::StaticDraw);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+
+        Shader overlay_shader;
+        if (!overlay_shader.load_files("shaders/overlay.vert", "shaders/overlay.frag")) {
+            std::fprintf(stderr, "Failed to load overlay shaders\n");
+            if (meta_tex) glDeleteTextures(1, &meta_tex);
+            if (dbz_tex) glDeleteTextures(1, &dbz_tex);
+            glfwDestroyWindow(window);
+            glfwTerminate();
+            return 1;
+        }
+        const int ovl_scale_loc  = glGetUniformLocation((GLuint)overlay_shader.id(), "u_view_scale");
+        const int ovl_offset_loc = glGetUniformLocation((GLuint)overlay_shader.id(), "u_view_offset");
+        const int ovl_color_loc  = glGetUniformLocation((GLuint)overlay_shader.id(), "u_color");
+
         // Legend resources.
         VertexArray legend_vao(true);
         Buffer legend_vbo(Buffer::Target::Array);
@@ -372,8 +473,39 @@ int main() {
         const int leg_psize_loc  = glGetUniformLocation((GLuint)legend_shader.id(), "u_pixel_size");
 
         glDisable(GL_DEPTH_TEST);
+        glEnable(GL_LINE_SMOOTH);
+        glLineWidth(1.0f);
 
         while (!glfwWindowShouldClose(window)) {
+            // Handle elevation switch.
+            if (view.requested_scan_idx != view.scan_idx) {
+                int new_idx = view.requested_scan_idx;
+                if (new_idx < 0) new_idx = 0;
+                if (new_idx >= view.num_scans) new_idx = view.num_scans - 1;
+                view.scan_idx = new_idx;
+                view.requested_scan_idx = new_idx;
+
+                scan_data = build_scan_gpu_data(ref.scans[new_idx]);
+                gate_count = scan_data.gates.size();
+                radial_count = scan_data.radial_count;
+                max_range = scan_data.max_range;
+
+                vbo.bind();
+                vbo.set_data(scan_data.gates.data(),
+                             sizeof(GateData) * gate_count,
+                             Buffer::Usage::StaticDraw);
+                meta_buffer.bind();
+                meta_buffer.set_data(scan_data.meta_packed.data(),
+                                     sizeof(float) * scan_data.meta_packed.size(),
+                                     Buffer::Usage::StaticDraw);
+                glBindTexture(GL_TEXTURE_BUFFER, meta_tex);
+                glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, meta_buffer.id());
+
+                std::printf("Active sweep: %d (elevation %.2f deg)\n",
+                            new_idx, ref.scans[new_idx].elevation);
+                std::fflush(stdout);
+            }
+
             int fbw = 0, fbh = 0;
             glfwGetFramebufferSize(window, &fbw, &fbh);
             glViewport(0, 0, fbw, fbh);
@@ -381,7 +513,6 @@ int main() {
             glClearColor(0.04f, 0.05f, 0.07f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
 
-            // Reflectivity pass.
             float base_sx = 1.0f, base_sy = 1.0f;
             if (max_range > 0.0f && fbw > 0 && fbh > 0) {
                 const float aspect = static_cast<float>(fbw) / static_cast<float>(fbh);
@@ -396,6 +527,7 @@ int main() {
             const float sx = base_sx * view.zoom;
             const float sy = base_sy * view.zoom;
 
+            // Reflectivity pass.
             if (gate_count > 0 && radial_count > 0) {
                 shader.use();
                 if (scale_loc >= 0)  glUniform2f(scale_loc, sx, sy);
@@ -406,6 +538,28 @@ int main() {
                 glBindTexture(GL_TEXTURE_1D, dbz_tex);
                 vao.bind();
                 glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(gate_count));
+            }
+
+            // Overlay pass: range rings + site marker.
+            {
+                overlay_shader.use();
+                if (ovl_scale_loc >= 0)  glUniform2f(ovl_scale_loc, sx, sy);
+                if (ovl_offset_loc >= 0) glUniform2f(ovl_offset_loc, view.offset_x, view.offset_y);
+                overlay_vao.bind();
+
+                // Range rings: subtle grey.
+                if (ovl_color_loc >= 0)
+                    glUniform4f(ovl_color_loc, 0.55f, 0.60f, 0.68f, 0.55f);
+                for (size_t i = 0; i < overlay.ring_offsets.size(); ++i) {
+                    glDrawArrays(GL_LINE_LOOP, overlay.ring_offsets[i], overlay.ring_counts[i]);
+                }
+
+                // Site marker: bright white.
+                if (overlay.marker_count > 0) {
+                    if (ovl_color_loc >= 0)
+                        glUniform4f(ovl_color_loc, 1.0f, 1.0f, 1.0f, 0.95f);
+                    glDrawArrays(GL_LINES, overlay.marker_offset, overlay.marker_count);
+                }
             }
 
             // Legend pass.
