@@ -8,9 +8,11 @@
 
 #include "shader.hpp"
 
-// Static utility function to go from file -> string
-static std::string readTextFile(const std::string &path) {
+static std::string read_text_file(const std::string &path) {
     std::ifstream f(path);
+    if (!f) {
+        return {};
+    }
     std::ostringstream ss;
     ss << f.rdbuf();
     return ss.str();
@@ -41,7 +43,7 @@ Shader& Shader::operator=(Shader&& other) noexcept {
     return *this;
 }
 
-static bool compile_shader(GLuint &shader_out, GLuint shader_type, std::string_view src, std::string &log_out){
+static bool compile_shader(GLuint &shader_out, GLuint shader_type, std::string_view src, std::string &log_out) {
     GLuint shader = glCreateShader(shader_type);
     const char *cstr_src = src.data();
     GLint len = src.size();
@@ -50,7 +52,7 @@ static bool compile_shader(GLuint &shader_out, GLuint shader_type, std::string_v
 
     GLint ok = 0;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
-    if(!ok){
+    if (!ok) {
         GLint log_len = 0;
         glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &log_len);
         log_out.resize((size_t) log_len);
@@ -64,8 +66,13 @@ static bool compile_shader(GLuint &shader_out, GLuint shader_type, std::string_v
 }
 
 bool Shader::load_files(const std::string &vertex_path, const std::string &fragment_path){
-    std::string vertex_src = readTextFile(vertex_path);
-    std::string fragment_src = readTextFile(fragment_path);
+    std::string vertex_src = read_text_file(vertex_path);
+    std::string fragment_src = read_text_file(fragment_path);
+    if (vertex_src.empty() || fragment_src.empty()) {
+        std::fprintf(stderr, "Could not read shader files: %s, %s\n",
+                     vertex_path.c_str(), fragment_path.c_str());
+        return false;
+    }
     return load_sources(vertex_src, fragment_src);
 }
 
@@ -73,13 +80,13 @@ bool Shader::load_sources(std::string_view vertex_src, std::string_view fragment
     std::string log;
     GLuint vertex, fragment;
 
-    if(!(compile_shader(vertex, GL_VERTEX_SHADER, vertex_src, log))){
-        fprintf(stderr, "Error compiling vertex shader:\n%s\n", log.data());
+    if (!compile_shader(vertex, GL_VERTEX_SHADER, vertex_src, log)) {
+        std::fprintf(stderr, "Error compiling vertex shader:\n%s\n", log.data());
         return false;
     }
 
-    if(!(compile_shader(fragment, GL_FRAGMENT_SHADER, fragment_src, log))){
-        fprintf(stderr, "Error compiling fragment shader:\n%s\n",log.data());
+    if (!compile_shader(fragment, GL_FRAGMENT_SHADER, fragment_src, log)) {
+        std::fprintf(stderr, "Error compiling fragment shader:\n%s\n",log.data());
         glDeleteShader(vertex);
         return false;
     }
@@ -94,12 +101,12 @@ bool Shader::load_sources(std::string_view vertex_src, std::string_view fragment
 
     GLint ok = 0;
     glGetProgramiv(program, GL_LINK_STATUS, &ok);
-    if(!ok){
+    if (!ok) {
         GLint log_len = 0;
         glGetProgramiv(program, GL_INFO_LOG_LENGTH, &log_len);
         log.resize((size_t) log_len);
         glGetProgramInfoLog(program, log_len, nullptr, log.data());
-        fprintf(stderr, "Error linking shader program:\n%s\n", log.data());
+        std::fprintf(stderr, "Error linking shader program:\n%s\n", log.data());
         glDeleteProgram(program);
         return false;
     }
@@ -135,8 +142,14 @@ void Shader::set_float(std::string_view name, float v) const {
     glUniform1f((GLint)loc, v);
 }
 
-void Shader::set_mat4(std::string_view name, const float* mat4) const {
+void Shader::set_vec2(std::string_view name, float x, float y) const {
     const int loc = uniform_location(name);
     if (loc < 0) return;
-    glUniformMatrix4fv((GLint)loc, 1, GL_FALSE, mat4);
+    glUniform2f((GLint)loc, x, y);
+}
+
+void Shader::set_vec4(std::string_view name, float x, float y, float z, float w) const {
+    const int loc = uniform_location(name);
+    if (loc < 0) return;
+    glUniform4f((GLint)loc, x, y, z, w);
 }

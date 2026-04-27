@@ -24,8 +24,12 @@ find_package(BZip2 REQUIRED)
 
 add_executable(app
     src/main.cpp
+    src/app/radar_render_data.cpp
+    src/app/renderers.cpp
+    src/app/view_state.cpp
     src/rsl/rsl_wrapper.cpp
     src/gl/buffer.cpp
+    src/gl/texture.cpp
     src/gl/vertex_array.cpp
     src/gl/shader.cpp
 )

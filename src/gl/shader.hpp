@@ -6,9 +6,8 @@
 #include <cstdint>
 #include <unordered_map>
 
-class Shader{
+class Shader {
     public:
-        // RAII - no copy but allow move semantics
         Shader() = default;
         ~Shader();
         
@@ -22,10 +21,10 @@ class Shader{
 
         void use() const;
 
-        // might need more/less depending on what we use
         void set_int(std::string_view name, int v) const;
         void set_float(std::string_view name, float v) const;
-        void set_mat4(std::string_view name, const float* mat4) const;
+        void set_vec2(std::string_view name, float x, float y) const;
+        void set_vec4(std::string_view name, float x, float y, float z, float w) const;
 
         uint32_t id() const { return program_; }
         explicit operator bool() const { return program_ != 0; }

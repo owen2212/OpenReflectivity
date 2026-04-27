@@ -1,7 +1,7 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
-#include <cmath>
+#include <utility>
 
 #include "rsl_wrapper.hpp"
 // C API
@@ -11,19 +11,15 @@ extern "C" {
 
 namespace rsl {
 
-struct RadarHandle{
+struct RadarHandle {
     Radar *r = nullptr;
 };
 
 static std::vector<Scan> get_scans_from_vol(const Volume *vol);
 static std::vector<Radial> get_radials_from_sweep(const Sweep *sweep, const Volume *vol);
 
-/**
- * Implementation
- * Custom deleter for Radar to enforce RAII with unique_ptr
- */
-void RadarData::RadarDeleter::operator()(RadarHandle *r) const noexcept{
-    if(r){
+void RadarData::RadarDeleter::operator()(RadarHandle *r) const noexcept {
+    if (r) {
         RSL_free_radar(r->r);
         delete r;
     }
@@ -32,32 +28,25 @@ void RadarData::RadarDeleter::operator()(RadarHandle *r) const noexcept{
 RadarData::RadarData(const std::string& file_path, const std::string& radar_site)
     : radar_ptr(new RadarHandle{RSL_wsr88d_to_radar(const_cast<char*>(file_path.c_str()), const_cast<char*>(radar_site.c_str()))})
 {
-    if(!radar_ptr || !radar_ptr->r){
+    if (!radar_ptr || !radar_ptr->r) {
         throw std::runtime_error("Could not load level 2 archive file: " + file_path);
     }
-
 }
 
-/**
- * Implementation
- * Creates Product -> Scans -> Radials
- */
-Product RadarData::get_product(PRODUCT_TYPE product_type) {
+Product RadarData::get_product(ProductType product_type) {
     Product p;
 
     Volume *vol = nullptr;
-    switch(product_type){
-        case REFLECTIVITY:
+    switch (product_type) {
+        case ProductType::REFLECTIVITY:
             vol = radar_ptr->r->v[DZ_INDEX];
             break;
-        case VELOCITY:
+        case ProductType::VELOCITY:
             vol = radar_ptr->r->v[VL_INDEX];
             break;
-        case SPECTRAL_WIDTH:
+        case ProductType::SPECTRAL_WIDTH:
             vol = radar_ptr->r->v[SW_INDEX];
             break;
-        default:
-            throw std::runtime_error("Product type not supported");
     }
 
     if (!vol) {
@@ -68,17 +57,18 @@ Product RadarData::get_product(PRODUCT_TYPE product_type) {
     return p;
 }
 
-static std::vector<Scan> get_scans_from_vol(const Volume *vol){
+static std::vector<Scan> get_scans_from_vol(const Volume *vol) {
     std::vector<Scan> scans;
+    scans.reserve(static_cast<size_t>(vol->h.nsweeps));
 
-    for(int i=0; i<vol->h.nsweeps; ++i){ 
-        Scan scan;
+    for (int i = 0; i < vol->h.nsweeps; ++i) {
         Sweep *sweep = vol->sweep[i];
-        if(!sweep) continue;
-        std::vector<Radial> radials = get_radials_from_sweep(sweep, vol);
-        scan.radials = radials; 
+        if (!sweep) continue;
+
+        Scan scan;
+        scan.radials = get_radials_from_sweep(sweep, vol);
         scan.elevation = sweep->h.elev;
-        scans.push_back(scan);
+        scans.push_back(std::move(scan));
     }
 
     return scans;
@@ -92,33 +82,34 @@ static inline float (*pick_f(const Ray* ray, const Sweep* sweep, const Volume* v
     return nullptr;
 }
 
-static std::vector<Radial> get_radials_from_sweep(const Sweep *sweep, const Volume *vol){
+static std::vector<Radial> get_radials_from_sweep(const Sweep *sweep, const Volume *vol) {
     std::vector<Radial> radials;
+    radials.reserve(static_cast<size_t>(sweep->h.nrays));
 
-    // Go thru each radial
-    for(int i=0; i<sweep->h.nrays; ++i){
-        Radial radial;
-        std::vector<float> gates;
+    for (int i = 0; i < sweep->h.nrays; ++i) {
         Ray *ray = sweep->ray[i];
-        if(!ray) continue;
+        if (!ray) continue;
+
         auto f = pick_f(ray, sweep, vol);
-        if(!f) continue;
-        // Go thru each gate and convert to float 
-        for(int j=0; j<ray->h.nbins; ++j){
-            float gate = sweep->h.f(ray->range[j]);
-            if(gate == BADVAL || gate == RFVAL || gate == APFLAG || gate == NOECHO)
+        if (!f) continue;
+
+        Radial radial;
+        radial.gates.reserve(static_cast<size_t>(ray->h.nbins));
+        for (int j = 0; j < ray->h.nbins; ++j) {
+            float gate = f(ray->range[j]);
+            if (gate == BADVAL || gate == RFVAL || gate == APFLAG || gate == NOECHO) {
                 gate = SENTINEL;
-            gates.push_back(gate);
+            }
+            radial.gates.push_back(gate);
         }
 
-        radial.gates = gates;
         radial.azimuth = ray->h.azimuth;
         radial.gate_size = ray->h.gate_size;
         radial.range_bin1 = ray->h.range_bin1;
-        radials.push_back(radial);
+        radials.push_back(std::move(radial));
     }
 
     return radials;
 }
 
-};
+} // namespace rsl
