@@ -1,6 +1,39 @@
-.vscode/
+# Build outputs
 build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+
+# Compiled artifacts
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+*.app/
+
+# Local data and scratch space
 examples/
+.cache/
+*.log
+
+# Local helper scripts
 build.sh
 run.sh
-.cache/
+
+# Editor and tooling state
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS metadata
+.DS_Store
+Thumbs.db
