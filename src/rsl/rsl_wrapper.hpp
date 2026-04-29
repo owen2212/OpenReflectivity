@@ -27,7 +27,8 @@ struct Radial {
 
 struct Scan {
     std::vector<Radial> radials;
-    float elevation;
+    float elevation = 0.0f;
+    float nyquist_vel = 0.0f;
 };
 
 struct Product {

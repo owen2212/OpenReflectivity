@@ -1,3 +1,4 @@
+#include <array>
 #include <cstdio>
 #include <exception>
 #include <optional>
@@ -13,6 +14,27 @@
 #include "rsl/rsl_wrapper.hpp"
 
 namespace {
+
+constexpr size_t kProductCount = 3;
+
+constexpr std::array<rsl::ProductType, kProductCount> kAllProducts = {
+    rsl::ProductType::REFLECTIVITY,
+    rsl::ProductType::VELOCITY,
+    rsl::ProductType::SPECTRAL_WIDTH,
+};
+
+size_t product_index(rsl::ProductType pt) {
+    return static_cast<size_t>(pt);
+}
+
+const char* product_name(rsl::ProductType pt) {
+    switch (pt) {
+        case rsl::ProductType::REFLECTIVITY: return "reflectivity";
+        case rsl::ProductType::VELOCITY: return "velocity";
+        case rsl::ProductType::SPECTRAL_WIDTH: return "spectrum_width";
+    }
+    return "unknown";
+}
 
 struct AppConfig {
     std::string level2_path = "examples/KTLX20130520_000122_V06";
@@ -105,6 +127,12 @@ void key_callback(GLFWwindow *win, int key, int /*sc*/, int action, int /*mods*/
         view->request_scan_delta(-1);
     } else if (key == GLFW_KEY_RIGHT_BRACKET) {
         view->request_scan_delta(1);
+    } else if (action == GLFW_PRESS && key == GLFW_KEY_1) {
+        view->requested_product = rsl::ProductType::REFLECTIVITY;
+    } else if (action == GLFW_PRESS && key == GLFW_KEY_2) {
+        view->requested_product = rsl::ProductType::VELOCITY;
+    } else if (action == GLFW_PRESS && key == GLFW_KEY_3) {
+        view->requested_product = rsl::ProductType::SPECTRAL_WIDTH;
     }
 }
 
@@ -151,16 +179,27 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    rsl::Product product;
+    std::array<rsl::Product, kProductCount> products;
     try {
         rsl::RadarData radar_data(config.level2_path, config.site_id);
-        product = radar_data.get_product(config.product_type);
+        // The CLI-specified product must load — failure here is fatal.
+        products[product_index(config.product_type)] = radar_data.get_product(config.product_type);
+        // Best-effort load the other moments so runtime switching works.
+        for (rsl::ProductType pt : kAllProducts) {
+            if (pt == config.product_type) continue;
+            try {
+                products[product_index(pt)] = radar_data.get_product(pt);
+            } catch (const std::exception &ex) {
+                std::fprintf(stderr, "Warning: %s product unavailable: %s\n",
+                             product_name(pt), ex.what());
+            }
+        }
     } catch (const std::exception &ex) {
         std::fprintf(stderr, "%s\n", ex.what());
         return 1;
     }
 
-    if (product.scans.empty()) {
+    if (products[product_index(config.product_type)].scans.empty()) {
         std::fprintf(stderr, "No scans in product '%s'\n", config.product_name.c_str());
         return 1;
     }
@@ -171,35 +210,53 @@ int main(int argc, char **argv) {
     }
 
     ViewState view;
-    view.num_scans = static_cast<int>(product.scans.size());
+    view.num_scans = static_cast<int>(products[product_index(config.product_type)].scans.size());
+    view.current_product = config.product_type;
+    view.requested_product = config.product_type;
     glfwSetWindowUserPointer(window, &view);
     glfwSetCursorPosCallback(window, cursor_pos_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetKeyCallback(window, key_callback);
 
-    std::printf("Loaded %d sweeps from %s (%s). Use [ and ] to switch elevation, R to reset view, Esc to quit.\n",
-                view.num_scans, config.site_id.c_str(), config.product_name.c_str());
-    std::printf("Active sweep: 0 (elevation %.2f deg)\n", product.scans[0].elevation);
+    std::printf("Loaded %d sweeps from %s. Initial product: %s.\n"
+                "[ and ] switch elevation. 1/2/3 switch product (ref / vel / sw).\n"
+                "R resets view, Esc quits.\n",
+                view.num_scans, config.site_id.c_str(), product_name(view.current_product));
+    std::printf("Active: %s sweep 0 (elevation %.2f deg)\n",
+                product_name(view.current_product),
+                products[product_index(view.current_product)].scans[0].elevation);
 
     int exit_code = 0;
     {
-        std::vector<std::optional<ScanGpuData>> scan_cache(product.scans.size());
-        scan_cache[0] = build_scan_gpu_data(product.scans[0]);
+        std::array<std::vector<std::optional<ScanGpuData>>, kProductCount> scan_caches;
+        for (size_t i = 0; i < kProductCount; ++i) {
+            scan_caches[i].resize(products[i].scans.size());
+        }
 
-        Texture dbz_lut = create_dbz_lut_texture();
-        ReflectivityRenderer reflectivity_renderer;
+        const size_t initial_pi = product_index(view.current_product);
+        scan_caches[initial_pi][0] = build_scan_gpu_data(products[initial_pi].scans[0]);
+
+        std::array<Texture, kProductCount> luts;
+        std::array<ProductRenderConfig, kProductCount> configs;
+        for (rsl::ProductType pt : kAllProducts) {
+            const size_t i = product_index(pt);
+            luts[i] = make_product_lut_texture(pt);
+            configs[i] = make_product_render_config(pt);
+        }
+
+        MomentRenderer moment_renderer;
         OverlayRenderer overlay_renderer;
         LegendRenderer legend_renderer;
 
-        if (!reflectivity_renderer.initialize()) {
-            std::fprintf(stderr, "Failed to initialize reflectivity renderer\n");
+        if (!moment_renderer.initialize()) {
+            std::fprintf(stderr, "Failed to initialize moment renderer\n");
             exit_code = 1;
         } else {
-            reflectivity_renderer.upload_scan(*scan_cache[0]);
+            moment_renderer.upload_scan(*scan_caches[initial_pi][0]);
         }
 
-        if (exit_code == 0 && !overlay_renderer.initialize(reflectivity_renderer.max_range())) {
+        if (exit_code == 0 && !overlay_renderer.initialize(moment_renderer.max_range())) {
             std::fprintf(stderr, "Failed to initialize overlay renderer\n");
             exit_code = 1;
         }
@@ -214,20 +271,50 @@ int main(int argc, char **argv) {
         glLineWidth(1.0f);
 
         while (exit_code == 0 && !glfwWindowShouldClose(window)) {
-            if (view.requested_scan_idx != view.scan_idx) {
+            const bool product_changed = view.requested_product != view.current_product;
+            const bool scan_changed = view.requested_scan_idx != view.scan_idx;
+
+            if (product_changed || scan_changed) {
+                if (product_changed) {
+                    const rsl::ProductType new_pt = view.requested_product;
+                    const size_t new_pi = product_index(new_pt);
+                    if (products[new_pi].scans.empty()) {
+                        std::fprintf(stderr,
+                                     "Product %s has no scans; staying on %s.\n",
+                                     product_name(new_pt), product_name(view.current_product));
+                        view.requested_product = view.current_product;
+                    } else {
+                        view.current_product = new_pt;
+                        view.num_scans = static_cast<int>(products[new_pi].scans.size());
+                    }
+                }
+
                 const int new_idx = view.clamp_scan_index(view.requested_scan_idx);
                 view.scan_idx = new_idx;
                 view.requested_scan_idx = new_idx;
 
-                if (!scan_cache[static_cast<size_t>(new_idx)]) {
-                    scan_cache[static_cast<size_t>(new_idx)] =
-                        build_scan_gpu_data(product.scans[static_cast<size_t>(new_idx)]);
+                const size_t pi = product_index(view.current_product);
+                auto &cache = scan_caches[pi];
+                if (!cache[static_cast<size_t>(new_idx)]) {
+                    cache[static_cast<size_t>(new_idx)] =
+                        build_scan_gpu_data(products[pi].scans[static_cast<size_t>(new_idx)]);
                 }
-                reflectivity_renderer.upload_scan(*scan_cache[static_cast<size_t>(new_idx)]);
-                overlay_renderer.update_range(reflectivity_renderer.max_range());
+                const ScanGpuData &gpu = *cache[static_cast<size_t>(new_idx)];
+                moment_renderer.upload_scan(gpu);
+                overlay_renderer.update_range(moment_renderer.max_range());
 
-                std::printf("Active sweep: %d (elevation %.2f deg)\n",
-                            new_idx, product.scans[static_cast<size_t>(new_idx)].elevation);
+                const rsl::Scan &scan = products[pi].scans[static_cast<size_t>(new_idx)];
+                if (gpu.gates.empty()) {
+                    std::printf("[no data] %s sweep %d\n",
+                                product_name(view.current_product), new_idx);
+                } else if (view.current_product == rsl::ProductType::VELOCITY && scan.nyquist_vel > 0.0f) {
+                    std::printf("Active: %s sweep %d (elevation %.2f deg, nyquist %.1f m/s)\n",
+                                product_name(view.current_product), new_idx,
+                                scan.elevation, scan.nyquist_vel);
+                } else {
+                    std::printf("Active: %s sweep %d (elevation %.2f deg)\n",
+                                product_name(view.current_product), new_idx, scan.elevation);
+                }
                 std::fflush(stdout);
             }
 
@@ -238,12 +325,22 @@ int main(int argc, char **argv) {
             glClearColor(0.04f, 0.05f, 0.07f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
 
+            const size_t pi = product_index(view.current_product);
+            ProductRenderConfig effective = configs[pi];
+            if (view.current_product == rsl::ProductType::VELOCITY) {
+                const float nyq = products[pi].scans[static_cast<size_t>(view.scan_idx)].nyquist_vel;
+                if (nyq > 0.0f) {
+                    effective.min_value = -nyq;
+                    effective.max_value = nyq;
+                }
+            }
+
             const ViewProjection projection =
-                make_view_projection(reflectivity_renderer.max_range(), fbw, fbh,
+                make_view_projection(moment_renderer.max_range(), fbw, fbh,
                                      view.zoom, view.offset_x, view.offset_y);
-            reflectivity_renderer.draw(projection, dbz_lut);
+            moment_renderer.draw(projection, luts[pi], effective);
             overlay_renderer.draw(projection);
-            legend_renderer.draw(fbw, fbh, dbz_lut);
+            legend_renderer.draw(fbw, fbh, luts[pi], effective);
 
             glfwSwapBuffers(window);
             glfwPollEvents();

@@ -17,11 +17,12 @@ struct ViewProjection {
     float offset_y = 0.0f;
 };
 
-class ReflectivityRenderer {
+class MomentRenderer {
     public:
         bool initialize();
         void upload_scan(const ScanGpuData &scan_data);
-        void draw(const ViewProjection &view, const Texture &dbz_lut);
+        void draw(const ViewProjection &view, const Texture &lut,
+                  const ProductRenderConfig &config);
         float max_range() const { return max_range_; }
 
     private:
@@ -66,7 +67,8 @@ class OverlayRenderer {
 class LegendRenderer {
     public:
         bool initialize();
-        void draw(int framebuffer_width, int framebuffer_height, const Texture &dbz_lut);
+        void draw(int framebuffer_width, int framebuffer_height,
+                  const Texture &lut, const ProductRenderConfig &config);
 
     private:
         VertexArray vao_;
@@ -74,7 +76,6 @@ class LegendRenderer {
         Shader shader_;
 };
 
-Texture create_dbz_lut_texture();
 ViewProjection make_view_projection(float max_range, int framebuffer_width, int framebuffer_height,
                                     float zoom, float offset_x, float offset_y);
 

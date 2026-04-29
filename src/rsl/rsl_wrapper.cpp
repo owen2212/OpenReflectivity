@@ -42,7 +42,7 @@ Product RadarData::get_product(ProductType product_type) {
             vol = radar_ptr->r->v[DZ_INDEX];
             break;
         case ProductType::VELOCITY:
-            vol = radar_ptr->r->v[VL_INDEX];
+            vol = radar_ptr->r->v[VR_INDEX];
             break;
         case ProductType::SPECTRAL_WIDTH:
             vol = radar_ptr->r->v[SW_INDEX];
@@ -61,13 +61,25 @@ static std::vector<Scan> get_scans_from_vol(const Volume *vol) {
     std::vector<Scan> scans;
     scans.reserve(static_cast<size_t>(vol->h.nsweeps));
 
+    // push an empty Scan for NULL slots so scan_idx means the same physical
+    // elevation across all moments (split cuts produce NULL sweeps at
+    // different positions per volume)
     for (int i = 0; i < vol->h.nsweeps; ++i) {
         Sweep *sweep = vol->sweep[i];
-        if (!sweep) continue;
+        if (!sweep) {
+            scans.emplace_back();
+            continue;
+        }
 
         Scan scan;
         scan.radials = get_radials_from_sweep(sweep, vol);
         scan.elevation = sweep->h.elev;
+        for (int r = 0; r < sweep->h.nrays; ++r) {
+            if (sweep->ray[r]) {
+                scan.nyquist_vel = sweep->ray[r]->h.nyq_vel;
+                break;
+            }
+        }
         scans.push_back(std::move(scan));
     }
 

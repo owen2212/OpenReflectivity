@@ -19,16 +19,6 @@ constexpr float kQuadVertices[] = {
 
 } // namespace
 
-Texture create_dbz_lut_texture() {
-    Texture texture(Texture::Target::Texture1D);
-    std::vector<unsigned char> lut = build_dbz_lut();
-    texture.set_image_1d(GL_RGB8, kDbzLutSize, GL_RGB, GL_UNSIGNED_BYTE, lut.data());
-    texture.set_parameter(GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    texture.set_parameter(GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    texture.set_parameter(GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    return texture;
-}
-
 ViewProjection make_view_projection(float max_range, int framebuffer_width, int framebuffer_height,
                                     float zoom, float offset_x, float offset_y) {
     ViewProjection view;
@@ -49,7 +39,7 @@ ViewProjection make_view_projection(float max_range, int framebuffer_width, int 
     return view;
 }
 
-bool ReflectivityRenderer::initialize() {
+bool MomentRenderer::initialize() {
     vao_.create();
     vao_.bind();
 
@@ -77,13 +67,11 @@ bool ReflectivityRenderer::initialize() {
     }
     shader_.use();
     shader_.set_int("u_radial_meta", 0);
-    shader_.set_int("u_dbz_lut", 1);
-    shader_.set_float("u_min_dbz", kMinDbz);
-    shader_.set_float("u_max_dbz", kMaxDbz);
+    shader_.set_int("u_value_lut", 1);
     return true;
 }
 
-void ReflectivityRenderer::upload_scan(const ScanGpuData &scan_data) {
+void MomentRenderer::upload_scan(const ScanGpuData &scan_data) {
     gate_count_ = scan_data.gates.size();
     radial_count_ = scan_data.radial_count;
     max_range_ = scan_data.max_range;
@@ -108,14 +96,18 @@ void ReflectivityRenderer::upload_scan(const ScanGpuData &scan_data) {
     meta_texture_.set_buffer(GL_RGBA32F, meta_buffer_.id());
 }
 
-void ReflectivityRenderer::draw(const ViewProjection &view, const Texture &dbz_lut) {
+void MomentRenderer::draw(const ViewProjection &view, const Texture &lut,
+                          const ProductRenderConfig &config) {
     if (gate_count_ == 0 || radial_count_ == 0) return;
 
     shader_.use();
     shader_.set_vec2("u_view_scale", view.scale_x, view.scale_y);
     shader_.set_vec2("u_view_offset", view.offset_x, view.offset_y);
+    shader_.set_float("u_min_value", config.min_value);
+    shader_.set_float("u_max_value", config.max_value);
+    shader_.set_float("u_discard_below", config.discard_below);
     meta_texture_.bind_unit(0);
-    dbz_lut.bind_unit(1);
+    lut.bind_unit(1);
     vao_.bind();
     glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(gate_count_));
 }
@@ -212,13 +204,12 @@ bool LegendRenderer::initialize() {
         return false;
     }
     shader_.use();
-    shader_.set_int("u_dbz_lut", 1);
-    shader_.set_float("u_min_dbz", kMinDbz);
-    shader_.set_float("u_max_dbz", kMaxDbz);
+    shader_.set_int("u_value_lut", 1);
     return true;
 }
 
-void LegendRenderer::draw(int framebuffer_width, int framebuffer_height, const Texture &dbz_lut) {
+void LegendRenderer::draw(int framebuffer_width, int framebuffer_height,
+                          const Texture &lut, const ProductRenderConfig &config) {
     if (framebuffer_width <= 0 || framebuffer_height <= 0) return;
 
     const float bar_w = 18.0f;
@@ -232,7 +223,10 @@ void LegendRenderer::draw(int framebuffer_width, int framebuffer_height, const T
     shader_.set_vec2("u_screen_size", static_cast<float>(framebuffer_width),
                      static_cast<float>(framebuffer_height));
     shader_.set_vec2("u_pixel_size", bar_w, bar_h);
-    dbz_lut.bind_unit(1);
+    shader_.set_float("u_min_value", config.min_value);
+    shader_.set_float("u_max_value", config.max_value);
+    shader_.set_float("u_tick_period", config.tick_period);
+    lut.bind_unit(1);
     vao_.bind();
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }

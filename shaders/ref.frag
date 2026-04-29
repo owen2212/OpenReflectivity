@@ -3,15 +3,16 @@
 in float v_gate;
 out vec4 FragColor;
 
-uniform sampler1D u_dbz_lut;
-uniform float u_min_dbz;
-uniform float u_max_dbz;
+uniform sampler1D u_value_lut;
+uniform float u_min_value;
+uniform float u_max_value;
+uniform float u_discard_below;
 
 void main() {
     if (v_gate <= -9999.0) discard;
-    if (v_gate < u_min_dbz) discard;
+    if (v_gate < u_discard_below) discard;
 
-    float t = clamp((v_gate - u_min_dbz) / (u_max_dbz - u_min_dbz), 0.0, 1.0);
-    vec3 color = texture(u_dbz_lut, t).rgb;
+    float t = clamp((v_gate - u_min_value) / (u_max_value - u_min_value), 0.0, 1.0);
+    vec3 color = texture(u_value_lut, t).rgb;
     FragColor = vec4(color, 1.0);
 }

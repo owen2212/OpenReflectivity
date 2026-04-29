@@ -1,6 +1,8 @@
 #ifndef VIEW_STATE_HPP
 #define VIEW_STATE_HPP
 
+#include "rsl/rsl_wrapper.hpp"
+
 struct ViewState {
     float offset_x = 0.0f;
     float offset_y = 0.0f;
@@ -12,6 +14,9 @@ struct ViewState {
     int scan_idx = 0;
     int requested_scan_idx = 0;
     int num_scans = 1;
+
+    rsl::ProductType current_product = rsl::ProductType::REFLECTIVITY;
+    rsl::ProductType requested_product = rsl::ProductType::REFLECTIVITY;
 
     void reset_view();
     void pan_by_pixels(double dx, double dy, int width, int height);

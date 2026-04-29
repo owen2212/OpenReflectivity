@@ -3,10 +3,11 @@
 in vec2 v_uv;
 out vec4 FragColor;
 
-uniform sampler1D u_dbz_lut;
+uniform sampler1D u_value_lut;
 uniform vec2 u_pixel_size;   // legend bar size in pixels (for border thickness)
-uniform float u_min_dbz;
-uniform float u_max_dbz;
+uniform float u_min_value;
+uniform float u_max_value;
+uniform float u_tick_period;
 
 void main() {
     // 1px border in pixel space.
@@ -17,19 +18,18 @@ void main() {
         return;
     }
 
-    // Tick marks every 10 dBZ from min to max along the bar.
-    float dbz = mix(u_min_dbz, u_max_dbz, v_uv.y);
-    float tick_period = 10.0;
-    float dist_to_tick = abs(fract(dbz / tick_period) - 0.5);
-    // half-width of a tick in dbz units, derived from one-pixel height.
-    float pixel_dbz = (u_max_dbz - u_min_dbz) / u_pixel_size.y;
-    bool on_tick = dist_to_tick > 0.5 - (pixel_dbz / tick_period) * 0.5;
+    // Tick marks every u_tick_period units along the bar.
+    float value = mix(u_min_value, u_max_value, v_uv.y);
+    float dist_to_tick = abs(fract(value / u_tick_period) - 0.5);
+    // half-width of a tick in value units, derived from one-pixel height.
+    float pixel_value = (u_max_value - u_min_value) / u_pixel_size.y;
+    bool on_tick = dist_to_tick > 0.5 - (pixel_value / u_tick_period) * 0.5;
     bool tick_zone = v_uv.x < 0.18 || v_uv.x > 0.82;
     if (on_tick && tick_zone) {
         FragColor = vec4(0.95, 0.95, 0.95, 1.0);
         return;
     }
 
-    vec3 color = texture(u_dbz_lut, v_uv.y).rgb;
+    vec3 color = texture(u_value_lut, v_uv.y).rgb;
     FragColor = vec4(color, 1.0);
 }
