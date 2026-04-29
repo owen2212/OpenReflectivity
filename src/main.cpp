@@ -24,6 +24,8 @@ constexpr size_t kProductCount = 3;
 constexpr float kSidebarWidth = 280.0f;
 constexpr float kMinRadarWidth = 320.0f;
 
+ImFont *g_title_font = nullptr;
+
 constexpr std::array<rsl::ProductType, kProductCount> kAllProducts = {
     rsl::ProductType::REFLECTIVITY,
     rsl::ProductType::VELOCITY,
@@ -111,8 +113,12 @@ void apply_grlevelx_style() {
     style.GrabRounding = 3.0f;
     style.WindowBorderSize = 0.0f;
     style.FrameBorderSize = 1.0f;
-    style.WindowPadding = ImVec2(12.0f, 12.0f);
-    style.ItemSpacing = ImVec2(8.0f, 7.0f);
+    style.ChildBorderSize = 1.0f;
+    style.WindowPadding = ImVec2(14.0f, 14.0f);
+    style.FramePadding = ImVec2(8.0f, 5.0f);
+    style.ItemSpacing = ImVec2(8.0f, 8.0f);
+    style.ScrollbarSize = 12.0f;
+    style.ScrollbarRounding = 4.0f;
 
     ImVec4 *colors = style.Colors;
     colors[ImGuiCol_WindowBg] = ImVec4(0.07f, 0.08f, 0.10f, 1.00f);
@@ -127,6 +133,10 @@ void apply_grlevelx_style() {
     colors[ImGuiCol_Header] = ImVec4(0.14f, 0.38f, 0.56f, 1.00f);
     colors[ImGuiCol_HeaderHovered] = ImVec4(0.18f, 0.45f, 0.66f, 1.00f);
     colors[ImGuiCol_HeaderActive] = ImVec4(0.12f, 0.34f, 0.52f, 1.00f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.08f, 0.09f, 0.11f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.22f, 0.25f, 0.29f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.30f, 0.34f, 0.40f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.40f, 0.46f, 0.54f, 1.00f);
 }
 
 void configure_imgui_font(GLFWwindow *window) {
@@ -137,13 +147,22 @@ void configure_imgui_font(GLFWwindow *window) {
 
     ImGuiIO &io = ImGui::GetIO();
     io.Fonts->Clear();
+    g_title_font = nullptr;
 
     ImFontConfig config;
-    config.SizePixels = 15.0f * font_scale;
     config.OversampleH = 3;
     config.OversampleV = 2;
     config.PixelSnapH = false;
-    io.Fonts->AddFontDefault(&config);
+
+    const char *font_path = "external/imgui/misc/fonts/Roboto-Medium.ttf";
+    ImFont *body = io.Fonts->AddFontFromFileTTF(font_path, 15.0f * font_scale, &config);
+    if (body) {
+        g_title_font = io.Fonts->AddFontFromFileTTF(font_path, 20.0f * font_scale, &config);
+    } else {
+        config.SizePixels = 15.0f * font_scale;
+        io.Fonts->AddFontDefault(&config);
+    }
+
     io.FontGlobalScale = 1.0f / font_scale;
 }
 
@@ -177,10 +196,13 @@ void draw_sidebar(GLFWwindow *window, ViewState &view,
                              ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
     ImGui::Begin("Controls", nullptr, flags);
 
+    if (g_title_font) ImGui::PushFont(g_title_font);
     ImGui::TextUnformatted("OpenReflectivity");
+    if (g_title_font) ImGui::PopFont();
     ImGui::Separator();
+    ImGui::Spacing();
 
-    ImGui::TextUnformatted("Product");
+    ImGui::TextDisabled("PRODUCT");
     for (rsl::ProductType pt : kAllProducts) {
         const bool available = !products[product_index(pt)].scans.empty();
         const bool selected = view.requested_product == pt;
@@ -198,7 +220,8 @@ void draw_sidebar(GLFWwindow *window, ViewState &view,
 
     ImGui::Spacing();
     ImGui::Separator();
-    ImGui::TextUnformatted("Elevation");
+    ImGui::Spacing();
+    ImGui::TextDisabled("ELEVATION");
 
     const size_t pi = product_index(view.current_product);
     const std::vector<rsl::Scan> &scans = products[pi].scans;
