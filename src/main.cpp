@@ -23,6 +23,7 @@ namespace {
 constexpr size_t kProductCount = 3;
 constexpr float kSidebarWidth = 280.0f;
 constexpr float kMinRadarWidth = 320.0f;
+constexpr double kPlaybackIntervalSeconds = 1.0;
 
 ImFont *g_title_font = nullptr;
 
@@ -225,22 +226,37 @@ void draw_sidebar(GLFWwindow *window, ViewState &view,
 
     const size_t pi = product_index(view.current_product);
     const std::vector<rsl::Scan> &scans = products[pi].scans;
-    const float list_height = std::max(140.0f, ImGui::GetContentRegionAvail().y - 96.0f);
-    if (ImGui::BeginChild("sweeps", ImVec2(0.0f, list_height), true)) {
-        for (size_t i = 0; i < scans.size(); ++i) {
-            const rsl::Scan &scan = scans[i];
-            char label[96];
-            if (scan.radials.empty()) {
-                std::snprintf(label, sizeof(label), "%02zu  %.2f deg  no data", i, scan.elevation);
-            } else {
-                std::snprintf(label, sizeof(label), "%02zu  %.2f deg", i, scan.elevation);
-            }
-            if (ImGui::Selectable(label, view.requested_scan_idx == static_cast<int>(i))) {
-                view.requested_scan_idx = static_cast<int>(i);
-            }
-        }
+    const int scan_count = static_cast<int>(scans.size());
+    const int requested_idx = view.clamp_scan_index(view.requested_scan_idx);
+    const ImGuiStyle &style = ImGui::GetStyle();
+    const float button_width =
+        std::max(0.0f, (ImGui::GetContentRegionAvail().x - style.ItemSpacing.x * 2.0f) / 3.0f);
+
+    const bool can_step_prev = scan_count > 1 && requested_idx > 0;
+    const bool can_step_next = scan_count > 1 && requested_idx < scan_count - 1;
+    if (!can_step_prev) ImGui::BeginDisabled();
+    if (ImGui::Button("Prev", ImVec2(button_width, 0.0f))) {
+        view.request_scan_delta(-1);
+        view.last_playback_advance_time = glfwGetTime();
     }
-    ImGui::EndChild();
+    if (!can_step_prev) ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    const bool can_toggle_playback = scan_count > 1 || view.playback_active;
+    if (!can_toggle_playback) ImGui::BeginDisabled();
+    if (ImGui::Button(view.playback_active ? "Pause" : "Play", ImVec2(button_width, 0.0f))) {
+        view.playback_active = !view.playback_active;
+        view.last_playback_advance_time = glfwGetTime();
+    }
+    if (!can_toggle_playback) ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    if (!can_step_next) ImGui::BeginDisabled();
+    if (ImGui::Button("Next", ImVec2(button_width, 0.0f))) {
+        view.request_scan_delta(1);
+        view.last_playback_advance_time = glfwGetTime();
+    }
+    if (!can_step_next) ImGui::EndDisabled();
 
     const rsl::Scan *active_scan = nullptr;
     if (!scans.empty()) {
@@ -336,8 +352,10 @@ void key_callback(GLFWwindow *win, int key, int sc, int action, int mods) {
         glfwSetWindowShouldClose(win, GLFW_TRUE);
     } else if (key == GLFW_KEY_LEFT_BRACKET) {
         view->request_scan_delta(-1);
+        view->last_playback_advance_time = glfwGetTime();
     } else if (key == GLFW_KEY_RIGHT_BRACKET) {
         view->request_scan_delta(1);
+        view->last_playback_advance_time = glfwGetTime();
     } else if (action == GLFW_PRESS && key == GLFW_KEY_1) {
         view->requested_product = rsl::ProductType::REFLECTIVITY;
     } else if (action == GLFW_PRESS && key == GLFW_KEY_2) {
@@ -453,7 +471,8 @@ int main(int argc, char **argv) {
     }
 
     std::printf("Loaded %d sweeps from %s. Initial product: %s.\n"
-                "[ and ] switch elevation. 1/2/3 switch product (ref / vel / sw).\n"
+                "[ and ] switch elevation. Sidebar Play loops sweeps at 1/sec.\n"
+                "1/2/3 switch product (ref / vel / sw).\n"
                 "R resets view, Esc quits.\n",
                 view.num_scans, config.site_id.c_str(), product_name(view.current_product));
     std::printf("Active: %s sweep 0 (elevation %.2f deg)\n",
@@ -509,7 +528,14 @@ int main(int argc, char **argv) {
             ImGui::NewFrame();
             draw_sidebar(window, view, products);
 
+            const double current_time = glfwGetTime();
             const bool product_changed = view.requested_product != view.current_product;
+            if (!product_changed && view.playback_active && view.num_scans > 1 &&
+                current_time - view.last_playback_advance_time >= kPlaybackIntervalSeconds) {
+                view.request_scan_delta_wrapped(1);
+                view.last_playback_advance_time = current_time;
+            }
+
             const bool scan_changed = view.requested_scan_idx != view.scan_idx;
 
             if (product_changed || scan_changed) {
@@ -525,6 +551,7 @@ int main(int argc, char **argv) {
                         view.current_product = new_pt;
                         view.num_scans = static_cast<int>(products[new_pi].scans.size());
                     }
+                    view.last_playback_advance_time = current_time;
                 }
 
                 const int new_idx = view.clamp_scan_index(view.requested_scan_idx);

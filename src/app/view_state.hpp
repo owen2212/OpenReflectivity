@@ -14,6 +14,8 @@ struct ViewState {
     int scan_idx = 0;
     int requested_scan_idx = 0;
     int num_scans = 1;
+    bool playback_active = false;
+    double last_playback_advance_time = 0.0;
 
     rsl::ProductType current_product = rsl::ProductType::REFLECTIVITY;
     rsl::ProductType requested_product = rsl::ProductType::REFLECTIVITY;
@@ -22,6 +24,7 @@ struct ViewState {
     void pan_by_pixels(double dx, double dy, int width, int height);
     void zoom_at(double y_offset, double cursor_x, double cursor_y, int width, int height);
     void request_scan_delta(int delta);
+    void request_scan_delta_wrapped(int delta);
     int clamp_scan_index(int idx) const;
 };
 

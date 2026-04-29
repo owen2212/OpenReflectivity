@@ -30,6 +30,18 @@ void ViewState::request_scan_delta(int delta) {
     requested_scan_idx = clamp_scan_index(requested_scan_idx + delta);
 }
 
+void ViewState::request_scan_delta_wrapped(int delta) {
+    if (num_scans <= 0) {
+        requested_scan_idx = 0;
+        return;
+    }
+
+    const int current_idx = clamp_scan_index(requested_scan_idx);
+    int next_idx = (current_idx + delta) % num_scans;
+    if (next_idx < 0) next_idx += num_scans;
+    requested_scan_idx = next_idx;
+}
+
 int ViewState::clamp_scan_index(int idx) const {
     if (idx < 0) return 0;
     if (idx >= num_scans) return num_scans - 1;
