@@ -23,7 +23,9 @@ namespace {
 constexpr size_t kProductCount = 3;
 constexpr float kSidebarWidth = 280.0f;
 constexpr float kMinRadarWidth = 320.0f;
-constexpr double kPlaybackIntervalSeconds = 1.0;
+constexpr float kMinPlaybackSweepsPerSecond = 0.25f;
+constexpr float kMaxPlaybackSweepsPerSecond = 4.0f;
+constexpr float kPlaybackSpeedWheelStep = 0.25f;
 
 ImFont *g_title_font = nullptr;
 
@@ -258,6 +260,27 @@ void draw_sidebar(GLFWwindow *window, ViewState &view,
     }
     if (!can_step_next) ImGui::EndDisabled();
 
+    ImGui::Spacing();
+    ImGui::TextDisabled("SPEED");
+    view.playback_sweeps_per_second =
+        std::clamp(view.playback_sweeps_per_second,
+                   kMinPlaybackSweepsPerSecond, kMaxPlaybackSweepsPerSecond);
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::SliderFloat("##playback_speed", &view.playback_sweeps_per_second,
+                           kMinPlaybackSweepsPerSecond, kMaxPlaybackSweepsPerSecond,
+                           "%.2fx", ImGuiSliderFlags_AlwaysClamp)) {
+        view.last_playback_advance_time = glfwGetTime();
+    }
+    if (ImGui::IsItemHovered()) {
+        const float wheel = ImGui::GetIO().MouseWheel;
+        if (wheel != 0.0f) {
+            view.playback_sweeps_per_second =
+                std::clamp(view.playback_sweeps_per_second + wheel * kPlaybackSpeedWheelStep,
+                           kMinPlaybackSweepsPerSecond, kMaxPlaybackSweepsPerSecond);
+            view.last_playback_advance_time = glfwGetTime();
+        }
+    }
+
     const rsl::Scan *active_scan = nullptr;
     if (!scans.empty()) {
         const int active_idx = view.clamp_scan_index(view.scan_idx);
@@ -471,7 +494,7 @@ int main(int argc, char **argv) {
     }
 
     std::printf("Loaded %d sweeps from %s. Initial product: %s.\n"
-                "[ and ] switch elevation. Sidebar Play loops sweeps at 1/sec.\n"
+                "[ and ] switch elevation. Sidebar Play loops sweeps with adjustable speed.\n"
                 "1/2/3 switch product (ref / vel / sw).\n"
                 "R resets view, Esc quits.\n",
                 view.num_scans, config.site_id.c_str(), product_name(view.current_product));
@@ -530,8 +553,13 @@ int main(int argc, char **argv) {
 
             const double current_time = glfwGetTime();
             const bool product_changed = view.requested_product != view.current_product;
+            const float playback_sweeps_per_second =
+                std::clamp(view.playback_sweeps_per_second,
+                           kMinPlaybackSweepsPerSecond, kMaxPlaybackSweepsPerSecond);
+            const double playback_interval_seconds =
+                1.0 / static_cast<double>(playback_sweeps_per_second);
             if (!product_changed && view.playback_active && view.num_scans > 1 &&
-                current_time - view.last_playback_advance_time >= kPlaybackIntervalSeconds) {
+                current_time - view.last_playback_advance_time >= playback_interval_seconds) {
                 view.request_scan_delta_wrapped(1);
                 view.last_playback_advance_time = current_time;
             }

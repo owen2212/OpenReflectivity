@@ -16,6 +16,7 @@ struct ViewState {
     int num_scans = 1;
     bool playback_active = false;
     double last_playback_advance_time = 0.0;
+    float playback_sweeps_per_second = 1.0f;
 
     rsl::ProductType current_product = rsl::ProductType::REFLECTIVITY;
     rsl::ProductType requested_product = rsl::ProductType::REFLECTIVITY;
