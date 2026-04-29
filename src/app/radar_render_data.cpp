@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <numeric>
 
 #include <glad/glad.h>
@@ -193,16 +194,45 @@ ScanGpuData build_scan_gpu_data(const rsl::Scan &scan) {
     });
 
     constexpr float kDeg2Rad = 0.01745329252f;
-    for (size_t oi = 0; oi < order.size(); ++oi) {
+    const size_t N = order.size();
+
+    // boundary_deg[oi] = wedge edge before order[oi] (midpoint to the previous
+    // radial). Compute once and share between neighbors so adjacent wedges get
+    // bit-exact endpoints, otherwise seams show up when zoomed in.
+    // boundary[0] wraps via (last - 360), and boundary[N] = boundary[0] + 360.
+    std::vector<float> boundary_deg(N + 1, 0.0f);
+    for (size_t oi = 0; oi < N; ++oi) {
+        const float curr = azimuths_deg[order[oi]];
+        const float prev = (oi == 0)
+            ? azimuths_deg[order[N - 1]] - 360.0f
+            : azimuths_deg[order[oi - 1]];
+        boundary_deg[oi] = 0.5f * (prev + curr);
+    }
+    boundary_deg[N] = boundary_deg[0] + 360.0f;
+
+    // cap wedge half-width so a missing sector shows up as a gap instead of
+    // the neighbors stretching across it
+    float max_half_deg = std::numeric_limits<float>::infinity();
+    if (N >= 2) {
+        std::vector<float> gaps(N);
+        for (size_t oi = 0; oi < N; ++oi) {
+            gaps[oi] = boundary_deg[oi + 1] - boundary_deg[oi];
+        }
+        const size_t mid = gaps.size() / 2;
+        std::nth_element(gaps.begin(), gaps.begin() + mid, gaps.end());
+        const float median_gap = gaps[mid];
+        if (median_gap > 0.0f) max_half_deg = 1.5f * median_gap;
+    }
+
+    for (size_t oi = 0; oi < N; ++oi) {
         const size_t idx = order[oi];
-        const size_t next_idx = order[(oi + 1) % order.size()];
         const float curr = azimuths_deg[idx];
-        float next = azimuths_deg[next_idx];
-        if (oi + 1 == order.size()) next += 360.0f;
-        float d = next - curr;
-        if (d < 0.0f) d += 360.0f;
-        delta_az_rad[idx] = d * kDeg2Rad;
-        az_start_rad[idx] = (curr - 0.5f * d) * kDeg2Rad;
+        float start_deg = boundary_deg[oi];
+        float end_deg   = boundary_deg[oi + 1];
+        start_deg = std::max(start_deg, curr - max_half_deg);
+        end_deg   = std::min(end_deg,   curr + max_half_deg);
+        az_start_rad[idx] = start_deg * kDeg2Rad;
+        delta_az_rad[idx] = (end_deg - start_deg) * kDeg2Rad;
     }
 
     out.meta_packed.reserve(radial_count * 4);
