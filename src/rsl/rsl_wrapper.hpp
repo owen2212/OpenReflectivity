@@ -15,7 +15,25 @@ constexpr float SENTINEL = -9999.0f;
 enum class ProductType {
     REFLECTIVITY,
     VELOCITY,
-    SPECTRAL_WIDTH
+    SPECTRAL_WIDTH,
+    COUNT
+};
+
+struct SiteInfo {
+    double lat = 0.0;       // decimal degrees, WGS84; positive north
+    double lon = 0.0;       // decimal degrees; positive east
+    double height_m = 0.0;
+    std::string site_id;
+    int vcp = 0;
+};
+
+struct ScanTime {
+    int year = 0;           // valid iff year > 0
+    int month = 0;
+    int day = 0;
+    int hour = 0;
+    int minute = 0;
+    float sec = 0.0f;
 };
 
 struct Radial {
@@ -29,6 +47,7 @@ struct Scan {
     std::vector<Radial> radials;
     float elevation = 0.0f;
     float nyquist_vel = 0.0f;
+    ScanTime start_time;
 };
 
 struct Product {
@@ -41,6 +60,7 @@ class RadarData {
         RadarData() = delete;
         RadarData(const std::string& file_path, const std::string& radar_site);
         Product get_product(ProductType product_type);
+        SiteInfo site_info() const;
 
     private:
         struct RadarDeleter {

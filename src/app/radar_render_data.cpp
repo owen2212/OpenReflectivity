@@ -123,6 +123,8 @@ ProductRenderConfig make_product_render_config(rsl::ProductType product_type) {
             cfg.unit_label = "m/s";
             cfg.tick_period = 2.0f;
             break;
+        case rsl::ProductType::COUNT:
+            break;
     }
     return cfg;
 }
@@ -142,6 +144,9 @@ Texture make_product_lut_texture(rsl::ProductType product_type) {
         case rsl::ProductType::SPECTRAL_WIDTH:
             lut = build_value_lut(kSpectrumWidthStops.data(), kSpectrumWidthStops.size(),
                                   cfg.min_value, cfg.max_value);
+            break;
+        case rsl::ProductType::COUNT:
+            lut.assign(static_cast<size_t>(kLutSize) * 3, 0);
             break;
     }
     return make_lut_texture(lut);

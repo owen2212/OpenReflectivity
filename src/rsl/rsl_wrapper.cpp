@@ -1,3 +1,5 @@
+#include <cmath>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <stdexcept>
@@ -47,6 +49,8 @@ Product RadarData::get_product(ProductType product_type) {
         case ProductType::SPECTRAL_WIDTH:
             vol = radar_ptr->r->v[SW_INDEX];
             break;
+        case ProductType::COUNT:
+            break;
     }
 
     if (!vol) {
@@ -55,6 +59,24 @@ Product RadarData::get_product(ProductType product_type) {
 
     p.scans = get_scans_from_vol(vol);
     return p;
+}
+
+// RSL's signed degree/minute/second triple to decimal degrees. The sign
+// lives on the first nonzero component only (e.g. -97d 16m 41s).
+static double dms_to_decimal(int d, int m, int s) {
+    const double sign = (d < 0 || m < 0 || s < 0) ? -1.0 : 1.0;
+    return sign * (std::abs(d) + std::abs(m) / 60.0 + std::abs(s) / 3600.0);
+}
+
+SiteInfo RadarData::site_info() const {
+    const Radar_header &h = radar_ptr->r->h;
+    SiteInfo info;
+    info.lat = dms_to_decimal(h.latd, h.latm, h.lats);
+    info.lon = dms_to_decimal(h.lond, h.lonm, h.lons);
+    info.height_m = static_cast<double>(h.height);
+    info.site_id.assign(h.name, strnlen(h.name, sizeof(h.name)));
+    info.vcp = h.vcp;
+    return info;
 }
 
 static std::vector<Scan> get_scans_from_vol(const Volume *vol) {
@@ -76,7 +98,10 @@ static std::vector<Scan> get_scans_from_vol(const Volume *vol) {
         scan.elevation = sweep->h.elev;
         for (int r = 0; r < sweep->h.nrays; ++r) {
             if (sweep->ray[r]) {
-                scan.nyquist_vel = sweep->ray[r]->h.nyq_vel;
+                const Ray_header &rh = sweep->ray[r]->h;
+                scan.nyquist_vel = rh.nyq_vel;
+                scan.start_time = ScanTime{rh.year, rh.month, rh.day,
+                                           rh.hour, rh.minute, rh.sec};
                 break;
             }
         }

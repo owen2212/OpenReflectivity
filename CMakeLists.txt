@@ -42,8 +42,12 @@ target_link_libraries(imgui PUBLIC
 
 add_executable(app
     src/main.cpp
+    src/app/imgui_setup.cpp
+    src/app/input.cpp
+    src/app/products.cpp
     src/app/radar_render_data.cpp
     src/app/renderers.cpp
+    src/app/sidebar.cpp
     src/app/view_state.cpp
     src/rsl/rsl_wrapper.cpp
     src/gl/buffer.cpp
