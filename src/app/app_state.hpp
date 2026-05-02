@@ -23,6 +23,7 @@ struct AppState {
     std::array<Texture, kProductCount> luts;       // filled after GL init
     std::array<ProductRenderConfig, kProductCount> configs;
     rsl::SiteInfo site;
+    bool screenshot_requested = false;
 
     int product_scan_count(rsl::ProductType pt) const {
         return static_cast<int>(products[product_index(pt)].scans.size());

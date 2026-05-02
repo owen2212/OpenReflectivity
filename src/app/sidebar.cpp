@@ -123,6 +123,11 @@ void draw_sidebar(GLFWwindow *window, AppState &app) {
         active_scan = &scans[static_cast<size_t>(active_idx)];
     }
 
+    ImGui::Spacing();
+    if (ImGui::Button("Screenshot (P)", ImVec2(-1.0f, 0.0f))) {
+        app.screenshot_requested = true;
+    }
+
     ImGui::Separator();
     ImGui::Text("Active: %s", product_label(view.current_product));
     ImGui::Text("Sweep: %d / %d", view.scan_idx + 1, app.product_scan_count(view.current_product));

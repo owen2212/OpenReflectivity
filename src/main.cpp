@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <string>
 
@@ -16,6 +17,7 @@
 #include "app/products.hpp"
 #include "app/radar_render_data.hpp"
 #include "app/renderers.hpp"
+#include "app/screenshot.hpp"
 #include "app/sidebar.hpp"
 #include "app/view_state.hpp"
 #include "rsl/rsl_wrapper.hpp"
@@ -186,6 +188,10 @@ int main(int argc, char **argv) {
         glEnable(GL_LINE_SMOOTH);
         glLineWidth(1.0f);
 
+        const char *autoshot_path = std::getenv("OPENREFL_AUTOSHOT");
+        constexpr long kAutoshotFrame = 30;
+        long frame_counter = 0;
+
         while (exit_code == 0 && !glfwWindowShouldClose(window)) {
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
@@ -288,6 +294,19 @@ int main(int argc, char **argv) {
             glViewport(0, 0, fbw, fbh);
             ImGui::Render();
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+            if (app.screenshot_requested) {
+                app.screenshot_requested = false;
+                save_screenshot_png(fbw, fbh);
+            }
+            // Developer hook: OPENREFL_AUTOSHOT=<path> captures one frame
+            // shortly after startup, for non-interactive visual checks.
+            if (autoshot_path && frame_counter == kAutoshotFrame) {
+                save_screenshot_png_to(fbw, fbh, autoshot_path);
+                std::printf("Saved autoshot: %s\n", autoshot_path);
+                std::fflush(stdout);
+            }
+            ++frame_counter;
 
             glfwSwapBuffers(window);
             glfwPollEvents();

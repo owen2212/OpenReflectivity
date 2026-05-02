@@ -47,6 +47,7 @@ add_executable(app
     src/app/products.cpp
     src/app/radar_render_data.cpp
     src/app/renderers.cpp
+    src/app/screenshot.cpp
     src/app/sidebar.cpp
     src/app/view_state.cpp
     src/rsl/rsl_wrapper.cpp
@@ -58,6 +59,7 @@ add_executable(app
 
 target_include_directories(app PRIVATE
     src
+    external/stb
 )
 
 file(GLOB RSL_SOURCES CONFIGURE_DEPENDS

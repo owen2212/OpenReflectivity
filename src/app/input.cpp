@@ -89,6 +89,8 @@ void key_callback(GLFWwindow *win, int key, int sc, int action, int mods) {
 
     if (action == GLFW_PRESS && key == GLFW_KEY_R) {
         view.reset_view();
+    } else if (action == GLFW_PRESS && key == GLFW_KEY_P) {
+        app->screenshot_requested = true;
     } else if (action == GLFW_PRESS && key == GLFW_KEY_ESCAPE) {
         glfwSetWindowShouldClose(win, GLFW_TRUE);
     } else if (key == GLFW_KEY_LEFT_BRACKET) {
