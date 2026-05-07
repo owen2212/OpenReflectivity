@@ -40,9 +40,11 @@ bool parse_args(int argc, char **argv, AppConfig &config) {
         return false;
     }
     if (!parse_product(config.product_name, config.product_type)) {
-        std::fprintf(stderr,
-                     "Unsupported product '%s'. Use reflectivity, velocity, or spectrum_width.\n",
-                     config.product_name.c_str());
+        std::fprintf(stderr, "Unsupported product '%s'. Available:", config.product_name.c_str());
+        for (const ProductDescriptor &desc : product_table()) {
+            std::fprintf(stderr, " %s", desc.cli_name);
+        }
+        std::fprintf(stderr, "\n");
         return false;
     }
     return true;
@@ -140,8 +142,8 @@ int main(int argc, char **argv) {
                 app.site.height_m, app.site.vcp);
     std::printf("Loaded %d sweeps from %s. Initial product: %s.\n"
                 "[ and ] switch elevation. Sidebar Play loops sweeps with adjustable speed.\n"
-                "1/2/3 switch product (ref / vel / sw).\n"
-                "R resets view, Esc quits.\n",
+                "1-6 switch product (ref / vel / sw / zdr / cc / phidp).\n"
+                "P saves a screenshot. R resets view, Esc quits.\n",
                 view.num_scans, config.site_id.c_str(), product_name(view.current_product));
     std::printf("Active: %s sweep 0 (elevation %.2f deg)\n",
                 product_name(view.current_product),

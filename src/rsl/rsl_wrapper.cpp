@@ -49,6 +49,17 @@ Product RadarData::get_product(ProductType product_type) {
         case ProductType::SPECTRAL_WIDTH:
             vol = radar_ptr->r->v[SW_INDEX];
             break;
+        // dual-pol moments come in via message type 31 (Build 12+).
+        // wsr88d_m31.c maps DZDR/DRHO/DPHI onto these volume slots.
+        case ProductType::ZDR:
+            vol = radar_ptr->r->v[DR_INDEX];
+            break;
+        case ProductType::CC:
+            vol = radar_ptr->r->v[RH_INDEX];
+            break;
+        case ProductType::PHI_DP:
+            vol = radar_ptr->r->v[PH_INDEX];
+            break;
         case ProductType::COUNT:
             break;
     }

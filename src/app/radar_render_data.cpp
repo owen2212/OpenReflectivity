@@ -16,30 +16,38 @@ struct ColorStop {
     float b;
 };
 
-// NEXRAD-style reflectivity rainbow (5–75 dBZ).
-constexpr std::array<ColorStop, 11> kDbzStops = {{
-    {  5.0f, 0.20f, 0.55f, 0.80f},
-    { 10.0f, 0.10f, 0.75f, 0.85f},
-    { 15.0f, 0.10f, 0.85f, 0.55f},
-    { 20.0f, 0.10f, 0.80f, 0.20f},
-    { 25.0f, 0.30f, 0.85f, 0.10f},
-    { 30.0f, 0.95f, 0.95f, 0.15f},
-    { 35.0f, 0.98f, 0.75f, 0.10f},
-    { 40.0f, 0.98f, 0.50f, 0.10f},
-    { 50.0f, 0.95f, 0.10f, 0.10f},
-    { 60.0f, 0.85f, 0.10f, 0.85f},
-    { 75.0f, 0.95f, 0.95f, 0.95f},
+// classic NWS reflectivity palette, 5-75 dBZ, lerped between levels
+constexpr std::array<ColorStop, 15> kDbzStops = {{
+    {  5.0f, 0.016f, 0.914f, 0.906f},   // light cyan
+    { 10.0f, 0.004f, 0.624f, 0.957f},   // blue
+    { 15.0f, 0.012f, 0.000f, 0.957f},   // dark blue
+    { 20.0f, 0.008f, 0.992f, 0.008f},   // green
+    { 25.0f, 0.004f, 0.773f, 0.004f},
+    { 30.0f, 0.000f, 0.557f, 0.000f},   // dark green
+    { 35.0f, 0.992f, 0.973f, 0.008f},   // yellow
+    { 40.0f, 0.898f, 0.737f, 0.000f},
+    { 45.0f, 0.992f, 0.584f, 0.000f},   // orange
+    { 50.0f, 0.992f, 0.000f, 0.000f},   // red
+    { 55.0f, 0.831f, 0.000f, 0.000f},
+    { 60.0f, 0.737f, 0.000f, 0.000f},   // dark red
+    { 65.0f, 0.973f, 0.000f, 0.992f},   // magenta
+    { 70.0f, 0.596f, 0.329f, 0.776f},   // purple
+    { 75.0f, 0.992f, 0.992f, 0.992f},   // white
 }};
 
-// NWS-style diverging velocity: inbound green, near-zero grey, outbound red.
-constexpr std::array<ColorStop, 7> kVelocityStops = {{
-    {-35.0f, 0.05f, 0.40f, 0.05f},
-    {-20.0f, 0.10f, 0.75f, 0.10f},
-    { -5.0f, 0.55f, 0.90f, 0.55f},
-    {  0.0f, 0.60f, 0.60f, 0.60f},
-    {  5.0f, 0.95f, 0.55f, 0.55f},
-    { 20.0f, 0.85f, 0.10f, 0.10f},
-    { 35.0f, 0.50f, 0.05f, 0.05f},
+// diverging velocity ramp, green inbound / red outbound, grey at zero.
+// Stops cover the nominal +/-35 m/s range; the shader normalizes by
+// min/max so a per-sweep Nyquist override rescales these for free.
+constexpr std::array<ColorStop, 9> kVelocityStops = {{
+    {-35.0f, 0.063f, 1.000f, 0.063f},   // bright green
+    {-20.0f, 0.004f, 0.753f, 0.004f},
+    {-10.0f, 0.000f, 0.533f, 0.000f},
+    { -2.0f, 0.157f, 0.282f, 0.157f},   // dark green
+    {  0.0f, 0.463f, 0.463f, 0.463f},   // grey
+    {  2.0f, 0.282f, 0.157f, 0.157f},   // dark red
+    { 10.0f, 0.627f, 0.000f, 0.000f},
+    { 20.0f, 0.878f, 0.000f, 0.000f},
+    { 35.0f, 1.000f, 0.251f, 0.251f},   // bright red
 }};
 
 // spectrum width: dark blue (laminar) up to red (turbulent), 0-12 m/s
@@ -49,6 +57,48 @@ constexpr std::array<ColorStop, 5> kSpectrumWidthStops = {{
     {  5.0f, 0.30f, 0.85f, 0.40f},
     {  8.0f, 0.95f, 0.85f, 0.20f},
     { 12.0f, 0.90f, 0.20f, 0.20f},
+}};
+
+// ZDR -4..+8 dB: greys/blues below zero, then the usual rain ramp into
+// magenta/white at the big-drop extremes
+constexpr std::array<ColorStop, 10> kZdrStops = {{
+    { -4.0f, 0.25f, 0.25f, 0.30f},
+    { -1.0f, 0.45f, 0.50f, 0.60f},
+    {  0.0f, 0.75f, 0.75f, 0.78f},
+    {  0.5f, 0.30f, 0.75f, 0.95f},
+    {  1.5f, 0.15f, 0.75f, 0.25f},
+    {  2.5f, 0.95f, 0.95f, 0.20f},
+    {  4.0f, 0.98f, 0.55f, 0.10f},
+    {  5.5f, 0.90f, 0.10f, 0.10f},
+    {  7.0f, 0.85f, 0.15f, 0.85f},
+    {  8.0f, 0.98f, 0.95f, 0.98f},
+}};
+
+// CC 0.2-1.05. Stops bunch up near 1.0 since that's the interesting band,
+// which fakes a nonlinear scale through the plain linear LUT.
+constexpr std::array<ColorStop, 10> kCcStops = {{
+    { 0.20f, 0.10f, 0.10f, 0.35f},
+    { 0.45f, 0.30f, 0.20f, 0.55f},
+    { 0.65f, 0.20f, 0.45f, 0.75f},
+    { 0.80f, 0.15f, 0.75f, 0.85f},
+    { 0.90f, 0.20f, 0.80f, 0.30f},
+    { 0.95f, 0.60f, 0.90f, 0.20f},
+    { 0.97f, 0.95f, 0.90f, 0.15f},
+    { 0.985f, 0.98f, 0.60f, 0.10f},
+    { 1.00f, 0.95f, 0.20f, 0.10f},
+    // CC routinely comes back slightly >1.0 in clean precip, keep it red
+    { 1.05f, 0.65f, 0.05f, 0.10f},
+}};
+
+// PhiDP 0-360 deg, plain rainbow
+constexpr std::array<ColorStop, 7> kPhiDpStops = {{
+    {   0.0f, 0.25f, 0.15f, 0.60f},
+    {  60.0f, 0.10f, 0.35f, 0.85f},
+    { 120.0f, 0.10f, 0.80f, 0.80f},
+    { 180.0f, 0.15f, 0.80f, 0.25f},
+    { 240.0f, 0.95f, 0.90f, 0.15f},
+    { 300.0f, 0.95f, 0.45f, 0.10f},
+    { 360.0f, 0.90f, 0.10f, 0.10f},
 }};
 
 std::vector<unsigned char> build_value_lut(const ColorStop *stops, size_t stop_count,
@@ -123,6 +173,27 @@ ProductRenderConfig make_product_render_config(rsl::ProductType product_type) {
             cfg.unit_label = "m/s";
             cfg.tick_period = 2.0f;
             break;
+        case rsl::ProductType::ZDR:
+            cfg.min_value = -4.0f;
+            cfg.max_value = 8.0f;
+            cfg.discard_below = rsl::SENTINEL + 1.0f;
+            cfg.unit_label = "dB";
+            cfg.tick_period = 2.0f;
+            break;
+        case rsl::ProductType::CC:
+            cfg.min_value = 0.2f;
+            cfg.max_value = 1.05f;
+            cfg.discard_below = rsl::SENTINEL + 1.0f;
+            cfg.unit_label = "CC";
+            cfg.tick_period = 0.1f;
+            break;
+        case rsl::ProductType::PHI_DP:
+            cfg.min_value = 0.0f;
+            cfg.max_value = 360.0f;
+            cfg.discard_below = rsl::SENTINEL + 1.0f;
+            cfg.unit_label = "deg";
+            cfg.tick_period = 45.0f;
+            break;
         case rsl::ProductType::COUNT:
             break;
     }
@@ -143,6 +214,18 @@ Texture make_product_lut_texture(rsl::ProductType product_type) {
             break;
         case rsl::ProductType::SPECTRAL_WIDTH:
             lut = build_value_lut(kSpectrumWidthStops.data(), kSpectrumWidthStops.size(),
+                                  cfg.min_value, cfg.max_value);
+            break;
+        case rsl::ProductType::ZDR:
+            lut = build_value_lut(kZdrStops.data(), kZdrStops.size(),
+                                  cfg.min_value, cfg.max_value);
+            break;
+        case rsl::ProductType::CC:
+            lut = build_value_lut(kCcStops.data(), kCcStops.size(),
+                                  cfg.min_value, cfg.max_value);
+            break;
+        case rsl::ProductType::PHI_DP:
+            lut = build_value_lut(kPhiDpStops.data(), kPhiDpStops.size(),
                                   cfg.min_value, cfg.max_value);
             break;
         case rsl::ProductType::COUNT:

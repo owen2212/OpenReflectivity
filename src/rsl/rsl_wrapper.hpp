@@ -16,6 +16,9 @@ enum class ProductType {
     REFLECTIVITY,
     VELOCITY,
     SPECTRAL_WIDTH,
+    ZDR,        // differential reflectivity (dB)
+    CC,         // correlation coefficient RhoHV (unitless)
+    PHI_DP,     // differential phase (deg)
     COUNT
 };
 

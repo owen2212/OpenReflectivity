@@ -10,6 +10,12 @@ const std::array<ProductDescriptor, kProductCount>& product_table() {
          "Velocity", GLFW_KEY_2},
         {rsl::ProductType::SPECTRAL_WIDTH, "spectrum_width", "sw", "spectral_width",
          "Spectrum Width", GLFW_KEY_3},
+        {rsl::ProductType::ZDR, "zdr", "dr", nullptr,
+         "Differential Refl", GLFW_KEY_4},
+        {rsl::ProductType::CC, "cc", "rho", nullptr,
+         "Correlation Coeff", GLFW_KEY_5},
+        {rsl::ProductType::PHI_DP, "phidp", "phi", nullptr,
+         "Differential Phase", GLFW_KEY_6},
     }};
     return table;
 }
