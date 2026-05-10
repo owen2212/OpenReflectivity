@@ -43,9 +43,11 @@ target_link_libraries(imgui PUBLIC
 add_executable(app
     src/main.cpp
     src/app/geo.cpp
+    src/app/hud.cpp
     src/app/imgui_setup.cpp
     src/app/input.cpp
     src/app/map_data.cpp
+    src/app/map_renderer.cpp
     src/app/products.cpp
     src/app/radar_render_data.cpp
     src/app/renderers.cpp

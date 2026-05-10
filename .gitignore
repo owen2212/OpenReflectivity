@@ -37,3 +37,6 @@ run.sh
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# App screenshot output
+screenshots/

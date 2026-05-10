@@ -5,6 +5,8 @@
 #include <optional>
 #include <vector>
 
+#include "app/geo.hpp"
+#include "app/map_data.hpp"
 #include "app/products.hpp"
 #include "app/radar_render_data.hpp"
 #include "app/view_state.hpp"
@@ -24,6 +26,14 @@ struct AppState {
     std::array<ProductRenderConfig, kProductCount> configs;
     rsl::SiteInfo site;
     bool screenshot_requested = false;
+
+    // raw lon/lat layers stay resident so a site change can re-project
+    // without re-reading the asset files
+    AzimuthalEquidistant projection;
+    MapPolylineLayer raw_states;
+    MapPolylineLayer raw_counties;
+    std::vector<MapPlace> raw_places;
+    std::vector<ProjectedPlace> projected_places;
 
     int product_scan_count(rsl::ProductType pt) const {
         return static_cast<int>(products[product_index(pt)].scans.size());

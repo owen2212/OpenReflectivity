@@ -12,8 +12,10 @@
 #include <imgui_impl_opengl3.h>
 
 #include "app/app_state.hpp"
+#include "app/hud.hpp"
 #include "app/imgui_setup.hpp"
 #include "app/input.hpp"
+#include "app/map_renderer.hpp"
 #include "app/products.hpp"
 #include "app/radar_render_data.hpp"
 #include "app/renderers.hpp"
@@ -168,6 +170,7 @@ int main(int argc, char **argv) {
         MomentRenderer moment_renderer;
         OverlayRenderer overlay_renderer;
         LegendRenderer legend_renderer;
+        MapRenderer map_renderer;
 
         if (!moment_renderer.initialize()) {
             std::fprintf(stderr, "Failed to initialize moment renderer\n");
@@ -184,6 +187,30 @@ int main(int argc, char **argv) {
         if (exit_code == 0 && !legend_renderer.initialize()) {
             std::fprintf(stderr, "Failed to initialize legend renderer\n");
             exit_code = 1;
+        }
+
+        if (exit_code == 0) {
+            if (!map_renderer.initialize()) {
+                std::fprintf(stderr, "Failed to initialize map renderer\n");
+                exit_code = 1;
+            } else {
+                // Map layers are optional: missing assets degrade to a
+                // console warning and an empty overlay.
+                constexpr float kMapRadiusM = 600000.0f;
+                app.projection = AzimuthalEquidistant(app.site.lat, app.site.lon);
+                load_polyline_file("assets/maps/states.lines", app.raw_states);
+                load_polyline_file("assets/maps/counties.lines", app.raw_counties);
+                load_places_file("assets/maps/places.pts", app.raw_places);
+
+                std::vector<MapRenderer::Layer> layers(2);
+                layers[0].lines = project_lines(app.raw_counties, app.projection, kMapRadiusM);
+                layers[0].r = 0.42f; layers[0].g = 0.45f; layers[0].b = 0.52f; layers[0].a = 0.85f;
+                layers[1].lines = project_lines(app.raw_states, app.projection, kMapRadiusM);
+                layers[1].r = 0.80f; layers[1].g = 0.83f; layers[1].b = 0.90f; layers[1].a = 1.0f;
+                map_renderer.set_layers(std::move(layers));
+                app.projected_places =
+                    project_places(app.raw_places, app.projection, kMapRadiusM);
+            }
         }
 
         glDisable(GL_DEPTH_TEST);
@@ -290,8 +317,16 @@ int main(int argc, char **argv) {
                 make_view_projection(moment_renderer.max_range(), radar_width_fb, fbh,
                                      view.zoom, view.offset_x, view.offset_y);
             moment_renderer.draw(projection, app.luts[pi], effective);
+            map_renderer.draw(projection, view.zoom);
             overlay_renderer.draw(projection);
             legend_renderer.draw(radar_width_fb, fbh, app.luts[pi], effective);
+
+            const float sidebar_width_win = sidebar_width_for_window(ww);
+            const ViewportRect viewport_win{
+                sidebar_width_win, 0.0f,
+                std::max(1.0f, static_cast<float>(ww) - sidebar_width_win),
+                static_cast<float>(wh)};
+            draw_place_labels(app.projected_places, projection, view.zoom, viewport_win);
 
             glViewport(0, 0, fbw, fbh);
             ImGui::Render();
