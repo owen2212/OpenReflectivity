@@ -1,6 +1,7 @@
 #include "sidebar.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <vector>
 
 #include <GLFW/glfw3.h>
@@ -14,6 +15,29 @@ namespace {
 constexpr float kSidebarWidth = 280.0f;
 constexpr float kMinRadarWidth = 320.0f;
 constexpr float kPlaybackSpeedWheelStep = 0.25f;
+
+// first valid scan timestamp across products (split cuts can leave the
+// current product's slot empty)
+const rsl::ScanTime* find_volume_time(const AppState &app) {
+    for (const rsl::Product &product : app.products) {
+        for (const rsl::Scan &scan : product.scans) {
+            if (scan.start_time.year > 0) return &scan.start_time;
+        }
+    }
+    return nullptr;
+}
+
+// elevation for a scan slot, checking every product since NULL sweeps in
+// the active product can still have the elevation recorded elsewhere
+bool elevation_for_index(const AppState &app, size_t idx, float &out_elev) {
+    for (const rsl::Product &product : app.products) {
+        if (idx < product.scans.size() && !product.scans[idx].radials.empty()) {
+            out_elev = product.scans[idx].elevation;
+            return true;
+        }
+    }
+    return false;
+}
 
 } // namespace
 
@@ -38,6 +62,19 @@ void draw_sidebar(GLFWwindow *window, AppState &app) {
     if (title_font()) ImGui::PushFont(title_font());
     ImGui::TextUnformatted("OpenReflectivity");
     if (title_font()) ImGui::PopFont();
+
+    if (!app.site.site_id.empty()) {
+        if (app.site.vcp > 0) {
+            ImGui::Text("%s  VCP %d", app.site.site_id.c_str(), app.site.vcp);
+        } else {
+            ImGui::TextUnformatted(app.site.site_id.c_str());
+        }
+    }
+    if (const rsl::ScanTime *t = find_volume_time(app)) {
+        ImGui::TextDisabled("%04d-%02d-%02d %02d:%02d:%02.0f UTC",
+                            t->year, t->month, t->day, t->hour, t->minute,
+                            static_cast<double>(t->sec));
+    }
     ImGui::Separator();
     ImGui::Spacing();
 
@@ -95,6 +132,34 @@ void draw_sidebar(GLFWwindow *window, AppState &app) {
         view.last_playback_advance_time = glfwGetTime();
     }
     if (!can_step_next) ImGui::EndDisabled();
+
+    if (scan_count > 0) {
+        const float row_h = ImGui::GetTextLineHeightWithSpacing();
+        const float list_h = row_h * std::min(8.5f, static_cast<float>(scan_count) + 0.5f);
+        ImGui::BeginChild("tilt_list", ImVec2(0.0f, list_h), ImGuiChildFlags_Borders);
+        static int last_scrolled_idx = -1;
+        for (int i = 0; i < scan_count; ++i) {
+            const bool selected = i == requested_idx;
+            const bool has_data = !scans[static_cast<size_t>(i)].radials.empty();
+            float elev = 0.0f;
+            char label[48];
+            if (elevation_for_index(app, static_cast<size_t>(i), elev)) {
+                std::snprintf(label, sizeof(label), "%4.1f deg%s##tilt%d",
+                              elev, has_data ? "" : "  (no data)", i);
+            } else {
+                std::snprintf(label, sizeof(label), "  -- ##tilt%d", i);
+            }
+            if (ImGui::Selectable(label, selected)) {
+                view.requested_scan_idx = i;
+                view.last_playback_advance_time = glfwGetTime();
+            }
+            if (selected && view.scan_idx != last_scrolled_idx) {
+                ImGui::SetScrollHereY(0.5f);
+                last_scrolled_idx = view.scan_idx;
+            }
+        }
+        ImGui::EndChild();
+    }
 
     ImGui::Spacing();
     ImGui::TextDisabled("SPEED");

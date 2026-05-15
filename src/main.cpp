@@ -327,6 +327,26 @@ int main(int argc, char **argv) {
                 std::max(1.0f, static_cast<float>(ww) - sidebar_width_win),
                 static_cast<float>(wh)};
             draw_place_labels(app.projected_places, projection, view.zoom, viewport_win);
+            draw_ring_and_cardinal_labels(projection, moment_renderer.max_range(), viewport_win);
+
+            const CursorReadout readout = compute_cursor_readout(app, projection, viewport_win);
+            draw_inspector_overlay(readout, effective.unit_label, viewport_win);
+
+            // legend bar geometry mirrors LegendRenderer::draw, converted
+            // from framebuffer pixels (origin bottom-left) to window coords
+            {
+                const float scale_y = (wh > 0) ? static_cast<float>(fbh) / static_cast<float>(wh) : 1.0f;
+                const float bar_h_fb = std::max(80.0f, static_cast<float>(fbh) * 0.6f);
+                const float bar_x_win =
+                    (static_cast<float>(sidebar_width_fb + radar_width_fb) - 16.0f - 18.0f) /
+                    framebuffer_scale_x;
+                const float bar_y_win = ((static_cast<float>(fbh) - bar_h_fb) * 0.5f) / scale_y;
+                draw_legend_annotations(product_label(view.current_product), effective.unit_label,
+                                        effective.min_value, effective.max_value,
+                                        effective.tick_period,
+                                        bar_x_win, bar_y_win, 18.0f / framebuffer_scale_x,
+                                        bar_h_fb / scale_y);
+            }
 
             glViewport(0, 0, fbw, fbh);
             ImGui::Render();
