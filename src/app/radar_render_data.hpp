@@ -15,6 +15,11 @@ struct ProductRenderConfig {
     float discard_below = -9990.0f;
     const char *unit_label = "";
     float tick_period = 1.0f;
+    // storm motion (east, north) m/s subtracted per gate along the radial.
+    // Only nonzero for velocity in storm-relative mode. ref.vert and the
+    // cursor inspector both need to apply the same pair.
+    float storm_u = 0.0f;
+    float storm_v = 0.0f;
 };
 
 struct GateData {

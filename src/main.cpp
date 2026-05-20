@@ -305,11 +305,16 @@ int main(int argc, char **argv) {
 
             const size_t pi = product_index(view.current_product);
             ProductRenderConfig effective = app.configs[pi];
+            const bool srv_active =
+                view.current_product == rsl::ProductType::VELOCITY && app.srv_enabled;
             if (view.current_product == rsl::ProductType::VELOCITY) {
                 const float nyq = app.products[pi].scans[static_cast<size_t>(view.scan_idx)].nyquist_vel;
                 if (nyq > 0.0f) {
                     effective.min_value = -nyq;
                     effective.max_value = nyq;
+                }
+                if (srv_active) {
+                    app.storm_motion_uv(effective.storm_u, effective.storm_v);
                 }
             }
 
@@ -329,7 +334,8 @@ int main(int argc, char **argv) {
             draw_place_labels(app.projected_places, projection, view.zoom, viewport_win);
             draw_ring_and_cardinal_labels(projection, moment_renderer.max_range(), viewport_win);
 
-            const CursorReadout readout = compute_cursor_readout(app, projection, viewport_win);
+            const CursorReadout readout =
+                compute_cursor_readout(app, projection, viewport_win, effective);
             draw_inspector_overlay(readout, effective.unit_label, viewport_win);
 
             // legend bar geometry mirrors LegendRenderer::draw, converted
@@ -341,7 +347,9 @@ int main(int argc, char **argv) {
                     (static_cast<float>(sidebar_width_fb + radar_width_fb) - 16.0f - 18.0f) /
                     framebuffer_scale_x;
                 const float bar_y_win = ((static_cast<float>(fbh) - bar_h_fb) * 0.5f) / scale_y;
-                draw_legend_annotations(product_label(view.current_product), effective.unit_label,
+                const char *legend_label =
+                    srv_active ? "Storm-Rel Velocity" : product_label(view.current_product);
+                draw_legend_annotations(legend_label, effective.unit_label,
                                         effective.min_value, effective.max_value,
                                         effective.tick_period,
                                         bar_x_win, bar_y_win, 18.0f / framebuffer_scale_x,

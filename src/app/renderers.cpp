@@ -106,6 +106,7 @@ void MomentRenderer::draw(const ViewProjection &view, const Texture &lut,
     shader_.set_float("u_min_value", config.min_value);
     shader_.set_float("u_max_value", config.max_value);
     shader_.set_float("u_discard_below", config.discard_below);
+    shader_.set_vec2("u_storm_motion", config.storm_u, config.storm_v);
     meta_texture_.bind_unit(0);
     lut.bind_unit(1);
     vao_.bind();

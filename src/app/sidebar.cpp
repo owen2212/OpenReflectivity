@@ -188,6 +188,20 @@ void draw_sidebar(GLFWwindow *window, AppState &app) {
         active_scan = &scans[static_cast<size_t>(active_idx)];
     }
 
+    if (view.current_product == rsl::ProductType::VELOCITY) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("STORM MOTION");
+        ImGui::Checkbox("Storm relative", &app.srv_enabled);
+        if (app.srv_enabled) {
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::DragFloat("##storm_from", &app.storm_from_deg, 1.0f, 0.0f, 360.0f,
+                             "From %.0f deg", ImGuiSliderFlags_AlwaysClamp);
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::DragFloat("##storm_speed", &app.storm_speed_kt, 0.5f, 0.0f, 100.0f,
+                             "%.0f kt", ImGuiSliderFlags_AlwaysClamp);
+        }
+    }
+
     ImGui::Spacing();
     if (ImGui::Button("Screenshot (P)", ImVec2(-1.0f, 0.0f))) {
         app.screenshot_requested = true;

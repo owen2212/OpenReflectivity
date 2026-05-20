@@ -8,6 +8,7 @@ layout(location = 3) in int radial_idx;// radial index
 uniform samplerBuffer u_radial_meta;
 uniform vec2 u_view_scale;
 uniform vec2 u_view_offset;
+uniform vec2 u_storm_motion;  // (east, north) m/s; (0,0) when not velocity / disabled
 
 out float v_gate;
 
@@ -28,5 +29,10 @@ void main() {
 
     vec2 ndc = world * u_view_scale + u_view_offset;
     gl_Position = vec4(ndc, 0.0, 1.0);
-    v_gate = gate;
+
+    // storm-relative: subtract the storm motion's projection onto this
+    // radial's direction (wedge center). Don't shift the sentinel.
+    float az_c = az_start + 0.5 * delta_az;
+    float corr = dot(vec2(sin(az_c), cos(az_c)), u_storm_motion);
+    v_gate = (gate <= -9000.0) ? gate : gate - corr;
 }

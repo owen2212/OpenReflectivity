@@ -36,9 +36,12 @@ struct CursorReadout {
     float value = 0.0f;
 };
 
-// Resolves the gate under the cursor in the active product's current scan.
+// gate under the cursor in the active product's current scan. config's
+// storm_u/storm_v are applied the same way the vertex shader does, so the
+// readout matches the displayed colors in storm-relative mode.
 CursorReadout compute_cursor_readout(const AppState &app, const ViewProjection &view,
-                                     const ViewportRect &vp);
+                                     const ViewportRect &vp,
+                                     const ProductRenderConfig &config);
 
 void draw_inspector_overlay(const CursorReadout &readout, const char *unit_label,
                             const ViewportRect &vp);

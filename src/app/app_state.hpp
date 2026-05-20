@@ -2,6 +2,7 @@
 #define APP_STATE_HPP
 
 #include <array>
+#include <cmath>
 #include <optional>
 #include <vector>
 
@@ -26,6 +27,21 @@ struct AppState {
     std::array<ProductRenderConfig, kProductCount> configs;
     rsl::SiteInfo site;
     bool screenshot_requested = false;
+
+    // storm-relative velocity (velocity product only)
+    bool srv_enabled = false;
+    float storm_from_deg = 240.0f;  // direction the storm comes FROM
+    float storm_speed_kt = 30.0f;
+
+    // storm motion as (east, north) m/s toward the storm's heading
+    void storm_motion_uv(float &u, float &v) const {
+        constexpr float kKt2Mps = 0.514444f;
+        constexpr float kDeg2Rad = 0.017453292f;
+        const float toward = (storm_from_deg + 180.0f) * kDeg2Rad;
+        const float spd = storm_speed_kt * kKt2Mps;
+        u = spd * std::sin(toward);
+        v = spd * std::cos(toward);
+    }
 
     // raw lon/lat layers stay resident so a site change can re-project
     // without re-reading the asset files

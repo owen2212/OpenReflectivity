@@ -64,7 +64,8 @@ void add_shadowed_text(ImDrawList *dl, ImVec2 pos, ImU32 color, const char *text
 } // namespace
 
 CursorReadout compute_cursor_readout(const AppState &app, const ViewProjection &view,
-                                     const ViewportRect &vp) {
+                                     const ViewportRect &vp,
+                                     const ProductRenderConfig &config) {
     CursorReadout out;
     const float sx = static_cast<float>(app.view.last_cursor_x);
     const float sy = static_cast<float>(app.view.last_cursor_y);
@@ -114,7 +115,10 @@ CursorReadout compute_cursor_readout(const AppState &app, const ViewProjection &
     const float value = best->gates[gate_idx];
     if (value > rsl::SENTINEL + 1.0f) {
         out.has_value = true;
-        out.value = value;
+        // same storm-relative correction as ref.vert, using this radial's az
+        const float az_rad = best->azimuth * 0.017453292f;
+        out.value = value - (std::sin(az_rad) * config.storm_u +
+                             std::cos(az_rad) * config.storm_v);
     }
     return out;
 }
