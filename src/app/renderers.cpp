@@ -113,6 +113,80 @@ void MomentRenderer::draw(const ViewProjection &view, const Texture &lut,
     glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(gate_count_));
 }
 
+bool SmoothMomentRenderer::initialize() {
+    vao_.create();
+    vao_.bind();
+    vbo_.bind();
+    constexpr float disc_quad[] = {
+        -1.0f, -1.0f,
+         1.0f, -1.0f,
+         1.0f,  1.0f,
+        -1.0f, -1.0f,
+         1.0f,  1.0f,
+        -1.0f,  1.0f,
+    };
+    vbo_.set_data(disc_quad, sizeof(disc_quad), Buffer::Usage::StaticDraw);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), nullptr);
+    glEnableVertexAttribArray(0);
+
+    if (!shader_.load_files("shaders/smooth.vert", "shaders/smooth.frag")) {
+        return false;
+    }
+    shader_.use();
+    shader_.set_int("u_polar", 0);
+    shader_.set_int("u_value_lut", 1);
+    shader_.set_int("u_az_lookup", 2);
+
+    // filtering is manual in the fragment shader, keep both textures NEAREST
+    polar_texture_.bind();
+    polar_texture_.set_parameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    polar_texture_.set_parameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    polar_texture_.set_parameter(GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    polar_texture_.set_parameter(GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    az_lookup_texture_.bind();
+    az_lookup_texture_.set_parameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    az_lookup_texture_.set_parameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    az_lookup_texture_.set_parameter(GL_TEXTURE_WRAP_S, GL_REPEAT);
+    return true;
+}
+
+void SmoothMomentRenderer::upload_scan(const ScanPolarTexture &polar) {
+    rows_ = polar.rows;
+    cols_ = polar.cols;
+    range_bin1_ = polar.range_bin1;
+    gate_size_ = polar.gate_size;
+    max_range_ = polar.max_range;
+    if (!polar.valid()) return;
+
+    polar_texture_.set_image_2d(GL_R32F, polar.cols, polar.rows,
+                                GL_RED, GL_FLOAT, polar.values.data());
+    az_lookup_texture_.set_image_1d(GL_R32F, kAzLookupSize,
+                                    GL_RED, GL_FLOAT, polar.az_lookup.data());
+}
+
+void SmoothMomentRenderer::draw(const ViewProjection &view, const Texture &lut,
+                                const ProductRenderConfig &config) {
+    if (rows_ <= 0 || cols_ <= 0) return;
+
+    shader_.use();
+    shader_.set_vec2("u_view_scale", view.scale_x, view.scale_y);
+    shader_.set_vec2("u_view_offset", view.offset_x, view.offset_y);
+    shader_.set_float("u_range_bin1", range_bin1_);
+    shader_.set_float("u_gate_size", gate_size_);
+    shader_.set_float("u_max_range", max_range_);
+    shader_.set_int("u_rows", rows_);
+    shader_.set_int("u_cols", cols_);
+    shader_.set_float("u_min_value", config.min_value);
+    shader_.set_float("u_max_value", config.max_value);
+    shader_.set_float("u_discard_below", config.discard_below);
+    shader_.set_vec2("u_storm_motion", config.storm_u, config.storm_v);
+    polar_texture_.bind_unit(0);
+    lut.bind_unit(1);
+    az_lookup_texture_.bind_unit(2);
+    vao_.bind();
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+}
+
 bool OverlayRenderer::initialize(float max_range) {
     vao_.create();
     vao_.bind();

@@ -23,6 +23,8 @@ struct AppState {
     ViewState view;
     std::array<rsl::Product, kProductCount> products;
     std::array<std::vector<std::optional<ScanGpuData>>, kProductCount> scan_caches;
+    std::array<std::vector<std::optional<ScanPolarTexture>>, kProductCount> polar_caches;
+    bool smoothing_enabled = false;
     std::array<Texture, kProductCount> luts;       // filled after GL init
     std::array<ProductRenderConfig, kProductCount> configs;
     rsl::SiteInfo site;

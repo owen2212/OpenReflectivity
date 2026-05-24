@@ -39,6 +39,29 @@ class MomentRenderer {
         float max_range_ = 0.0f;
 };
 
+// smoothed alternative to MomentRenderer: the sweep lives in a 2D polar
+// texture and the fragment shader does sentinel-aware bilinear filtering
+class SmoothMomentRenderer {
+    public:
+        bool initialize();
+        void upload_scan(const ScanPolarTexture &polar);
+        void draw(const ViewProjection &view, const Texture &lut,
+                  const ProductRenderConfig &config);
+        bool has_scan() const { return rows_ > 0; }
+
+    private:
+        VertexArray vao_;
+        Buffer vbo_{Buffer::Target::Array};
+        Shader shader_;
+        Texture polar_texture_{Texture::Target::Texture2D};
+        Texture az_lookup_texture_{Texture::Target::Texture1D};
+        int rows_ = 0;
+        int cols_ = 0;
+        float range_bin1_ = 0.0f;
+        float gate_size_ = 0.0f;
+        float max_range_ = 0.0f;
+};
+
 class OverlayRenderer {
     public:
         bool initialize(float max_range);

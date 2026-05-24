@@ -63,6 +63,13 @@ void Texture::set_image_1d(int internal_format, int width, uint32_t format,
                  static_cast<GLenum>(format), static_cast<GLenum>(type), data);
 }
 
+void Texture::set_image_2d(int internal_format, int width, int height, uint32_t format,
+                           uint32_t type, const void *data) {
+    bind();
+    glTexImage2D(static_cast<GLenum>(target_), 0, internal_format, width, height, 0,
+                 static_cast<GLenum>(format), static_cast<GLenum>(type), data);
+}
+
 void Texture::set_parameter(uint32_t pname, int value) {
     bind();
     glTexParameteri(static_cast<GLenum>(target_), static_cast<GLenum>(pname), value);

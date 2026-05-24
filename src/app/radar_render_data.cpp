@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <limits>
 #include <numeric>
 
@@ -329,6 +330,86 @@ ScanGpuData build_scan_gpu_data(const rsl::Scan &scan) {
         out.meta_packed.push_back(range_bin1_per_radial[i]);
         out.meta_packed.push_back(gate_size_per_radial[i]);
         out.meta_packed.push_back(delta_az_rad[i]);
+    }
+    return out;
+}
+
+ScanPolarTexture build_scan_polar_texture(const rsl::Scan &scan) {
+    ScanPolarTexture out;
+    const size_t radial_count = scan.radials.size();
+    if (radial_count < 2) return out;
+
+    // needs uniform gate geometry across the sweep (true for WSR-88D within
+    // a single cut), bail out otherwise and the caller falls back to wedges
+    const float range_bin1 = scan.radials[0].range_bin1;
+    const float gate_size = scan.radials[0].gate_size;
+    if (gate_size <= 0.0f) return out;
+    size_t max_gates = 0;
+    for (const rsl::Radial &r : scan.radials) {
+        if (std::fabs(r.range_bin1 - range_bin1) > 1.0f ||
+            std::fabs(r.gate_size - gate_size) > 1.0f) {
+            return out;
+        }
+        max_gates = std::max(max_gates, r.gates.size());
+    }
+    if (max_gates == 0) return out;
+
+    std::vector<size_t> order(radial_count);
+    std::iota(order.begin(), order.end(), 0);
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+        return scan.radials[a].azimuth < scan.radials[b].azimuth;
+    });
+
+    out.rows = static_cast<int>(radial_count);
+    out.cols = static_cast<int>(max_gates);
+    out.range_bin1 = range_bin1;
+    out.gate_size = gate_size;
+    out.max_range = range_bin1 + gate_size * static_cast<float>(max_gates);
+    out.values.assign(radial_count * max_gates, rsl::SENTINEL);
+    for (size_t row = 0; row < radial_count; ++row) {
+        const rsl::Radial &r = scan.radials[order[row]];
+        std::copy(r.gates.begin(), r.gates.end(),
+                  out.values.begin() + static_cast<long>(row * max_gates));
+    }
+
+    // median inter-radial gap, same missing-sector rule as the wedge path
+    std::vector<float> gaps(radial_count);
+    for (size_t i = 0; i < radial_count; ++i) {
+        const float curr = scan.radials[order[i]].azimuth;
+        const float next = (i + 1 < radial_count)
+            ? scan.radials[order[i + 1]].azimuth
+            : scan.radials[order[0]].azimuth + 360.0f;
+        gaps[i] = next - curr;
+    }
+    std::vector<float> sorted_gaps = gaps;
+    const size_t mid = sorted_gaps.size() / 2;
+    std::nth_element(sorted_gaps.begin(), sorted_gaps.begin() + mid, sorted_gaps.end());
+    const float max_gap = 1.5f * std::max(sorted_gaps[mid], 1e-3f);
+
+    // azimuth -> continuous row coordinate. Bins inside oversized gaps get -1
+    // so the shader can leave them black.
+    out.az_lookup.assign(kAzLookupSize, -1.0f);
+    size_t seg = 0;  // segment [seg, seg+1) in sorted order
+    for (int bin = 0; bin < kAzLookupSize; ++bin) {
+        const float az = (static_cast<float>(bin) + 0.5f) * (360.0f / kAzLookupSize);
+        // bins before the first radial belong to the wrap segment
+        float start = scan.radials[order[seg]].azimuth;
+        if (az < scan.radials[order[0]].azimuth) {
+            const float wrap_start = scan.radials[order[radial_count - 1]].azimuth - 360.0f;
+            const float gap = scan.radials[order[0]].azimuth - wrap_start;
+            if (gap <= max_gap) {
+                out.az_lookup[bin] = static_cast<float>(radial_count - 1) +
+                                     (az - wrap_start) / gap;
+            }
+            continue;
+        }
+        while (seg + 1 < radial_count && scan.radials[order[seg + 1]].azimuth <= az) {
+            ++seg;
+        }
+        start = scan.radials[order[seg]].azimuth;
+        if (gaps[seg] <= max_gap) {
+            out.az_lookup[bin] = static_cast<float>(seg) + (az - start) / gaps[seg];
+        }
     }
     return out;
 }

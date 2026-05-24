@@ -188,6 +188,10 @@ void draw_sidebar(GLFWwindow *window, AppState &app) {
         active_scan = &scans[static_cast<size_t>(active_idx)];
     }
 
+    ImGui::Spacing();
+    ImGui::TextDisabled("DISPLAY");
+    ImGui::Checkbox("Smoothing", &app.smoothing_enabled);
+
     if (view.current_product == rsl::ProductType::VELOCITY) {
         ImGui::Spacing();
         ImGui::TextDisabled("STORM MOTION");

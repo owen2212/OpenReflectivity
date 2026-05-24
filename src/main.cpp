@@ -156,6 +156,7 @@ int main(int argc, char **argv) {
     {
         for (size_t i = 0; i < kProductCount; ++i) {
             app.scan_caches[i].resize(app.products[i].scans.size());
+            app.polar_caches[i].resize(app.products[i].scans.size());
         }
 
         const size_t initial_pi = product_index(view.current_product);
@@ -168,6 +169,7 @@ int main(int argc, char **argv) {
         }
 
         MomentRenderer moment_renderer;
+        SmoothMomentRenderer smooth_renderer;
         OverlayRenderer overlay_renderer;
         LegendRenderer legend_renderer;
         MapRenderer map_renderer;
@@ -177,6 +179,11 @@ int main(int argc, char **argv) {
             exit_code = 1;
         } else {
             moment_renderer.upload_scan(*app.scan_caches[initial_pi][0]);
+        }
+
+        if (exit_code == 0 && !smooth_renderer.initialize()) {
+            std::fprintf(stderr, "Failed to initialize smooth renderer\n");
+            exit_code = 1;
         }
 
         if (exit_code == 0 && !overlay_renderer.initialize(moment_renderer.max_range())) {
@@ -220,6 +227,18 @@ int main(int argc, char **argv) {
         const char *autoshot_path = std::getenv("OPENREFL_AUTOSHOT");
         constexpr long kAutoshotFrame = 30;
         long frame_counter = 0;
+
+        // OPENREFL_VIEW="zoom,cx_km,cy_km" starts the view zoomed onto a
+        // world point (km east/north of the site). Applied on the first
+        // frame once the viewport size is known.
+        float env_zoom = 0.0f, env_cx_km = 0.0f, env_cy_km = 0.0f;
+        bool view_env_pending = false;
+        if (const char *view_env = std::getenv("OPENREFL_VIEW")) {
+            view_env_pending = std::sscanf(view_env, "%f,%f,%f",
+                                           &env_zoom, &env_cx_km, &env_cy_km) == 3;
+        }
+        int smooth_uploaded_pi = -1;
+        int smooth_uploaded_idx = -1;
 
         while (exit_code == 0 && !glfwWindowShouldClose(window)) {
             ImGui_ImplOpenGL3_NewFrame();
@@ -318,10 +337,43 @@ int main(int argc, char **argv) {
                 }
             }
 
+            // smoothed path lazily builds/uploads the polar texture for the
+            // active sweep. Falls back to the crisp path when the sweep
+            // can't be gridded.
+            bool smoothing_active = app.smoothing_enabled;
+            if (smoothing_active) {
+                if (smooth_uploaded_pi != static_cast<int>(pi) ||
+                    smooth_uploaded_idx != view.scan_idx) {
+                    auto &pcache = app.polar_caches[pi];
+                    const size_t idx = static_cast<size_t>(view.scan_idx);
+                    if (!pcache[idx]) {
+                        pcache[idx] = build_scan_polar_texture(app.products[pi].scans[idx]);
+                    }
+                    smooth_renderer.upload_scan(*pcache[idx]);
+                    smooth_uploaded_pi = static_cast<int>(pi);
+                    smooth_uploaded_idx = view.scan_idx;
+                }
+                smoothing_active = smooth_renderer.has_scan();
+            }
+
+            if (view_env_pending) {
+                view.zoom = env_zoom;
+                const ViewProjection base =
+                    make_view_projection(moment_renderer.max_range(), radar_width_fb, fbh,
+                                         view.zoom, 0.0f, 0.0f);
+                view.offset_x = -env_cx_km * 1000.0f * base.scale_x;
+                view.offset_y = -env_cy_km * 1000.0f * base.scale_y;
+                view_env_pending = false;
+            }
+
             const ViewProjection projection =
                 make_view_projection(moment_renderer.max_range(), radar_width_fb, fbh,
                                      view.zoom, view.offset_x, view.offset_y);
-            moment_renderer.draw(projection, app.luts[pi], effective);
+            if (smoothing_active) {
+                smooth_renderer.draw(projection, app.luts[pi], effective);
+            } else {
+                moment_renderer.draw(projection, app.luts[pi], effective);
+            }
             map_renderer.draw(projection, view.zoom);
             overlay_renderer.draw(projection);
             legend_renderer.draw(radar_width_fb, fbh, app.luts[pi], effective);

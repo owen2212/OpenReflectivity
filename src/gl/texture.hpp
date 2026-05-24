@@ -7,6 +7,7 @@ class Texture {
     public:
         enum class Target : uint32_t {
             Texture1D = 0x0DE0,      // GL_TEXTURE_1D
+            Texture2D = 0x0DE1,      // GL_TEXTURE_2D
             TextureBuffer = 0x8C2A,  // GL_TEXTURE_BUFFER
         };
 
@@ -26,6 +27,8 @@ class Texture {
         void bind_unit(uint32_t unit) const;
         void set_buffer(uint32_t internal_format, uint32_t buffer_id);
         void set_image_1d(int internal_format, int width, uint32_t format,
+                          uint32_t type, const void *data);
+        void set_image_2d(int internal_format, int width, int height, uint32_t format,
                           uint32_t type, const void *data);
         void set_parameter(uint32_t pname, int value);
 
