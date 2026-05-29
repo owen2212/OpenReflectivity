@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "app/geo.hpp"
@@ -29,6 +30,11 @@ struct AppState {
     std::array<ProductRenderConfig, kProductCount> configs;
     rsl::SiteInfo site;
     bool screenshot_requested = false;
+
+    // drop callback parks a path here, the frame loop hands it to the
+    // VolumeLoader. load_error shows decode failures in the sidebar.
+    std::string pending_drop_path;
+    std::string load_error;
 
     // storm-relative velocity (velocity product only)
     bool srv_enabled = false;

@@ -22,6 +22,8 @@ find_package(OpenGL REQUIRED)
 
 find_package(BZip2 REQUIRED)
 
+find_package(Threads REQUIRED)
+
 add_library(imgui STATIC
     external/imgui/imgui.cpp
     external/imgui/imgui_draw.cpp
@@ -54,6 +56,7 @@ add_executable(app
     src/app/screenshot.cpp
     src/app/sidebar.cpp
     src/app/view_state.cpp
+    src/app/volume_loader.cpp
     src/rsl/rsl_wrapper.cpp
     src/gl/buffer.cpp
     src/gl/texture.cpp
@@ -98,4 +101,5 @@ target_link_libraries(app PRIVATE
     rsl
     glfw
     OpenGL::GL
+    Threads::Threads
 )

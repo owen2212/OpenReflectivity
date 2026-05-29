@@ -2,8 +2,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <exception>
+#include <filesystem>
 #include <string>
+#include <utility>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -22,6 +23,7 @@
 #include "app/screenshot.hpp"
 #include "app/sidebar.hpp"
 #include "app/view_state.hpp"
+#include "app/volume_loader.hpp"
 #include "rsl/rsl_wrapper.hpp"
 
 namespace {
@@ -87,6 +89,82 @@ bool initialize_glfw_window(GLFWwindow *&window) {
     return true;
 }
 
+constexpr float kMapRadiusM = 600000.0f;
+
+std::vector<MapRenderer::Layer> build_map_layers(const AppState &app) {
+    std::vector<MapRenderer::Layer> layers(2);
+    layers[0].lines = project_lines(app.raw_counties, app.projection, kMapRadiusM);
+    layers[0].r = 0.42f; layers[0].g = 0.45f; layers[0].b = 0.52f; layers[0].a = 0.85f;
+    layers[1].lines = project_lines(app.raw_states, app.projection, kMapRadiusM);
+    layers[1].r = 0.80f; layers[1].g = 0.83f; layers[1].b = 0.90f; layers[1].a = 1.0f;
+    return layers;
+}
+
+// Installs a freshly decoded volume: replaces products, resets caches,
+// re-projects map layers for the (possibly new) site, uploads the current
+// sweep, and refreshes window chrome. Used for the startup load and for
+// every drag-and-drop load alike.
+void apply_volume_swap(AppState &app, LoadedVolume &&vol, GLFWwindow *window,
+                       MomentRenderer &moment_renderer, OverlayRenderer &overlay_renderer,
+                       MapRenderer &map_renderer, int &smooth_uploaded_pi,
+                       int &smooth_uploaded_idx) {
+    ViewState &view = app.view;
+    app.products = std::move(vol.products);
+    app.site = vol.site;
+    app.load_error.clear();
+    for (size_t i = 0; i < kProductCount; ++i) {
+        app.scan_caches[i].assign(app.products[i].scans.size(), std::nullopt);
+        app.polar_caches[i].assign(app.products[i].scans.size(), std::nullopt);
+    }
+    smooth_uploaded_pi = -1;
+    smooth_uploaded_idx = -1;
+
+    // keep the requested product if the new volume has it, otherwise fall
+    // back to the first product that decoded
+    rsl::ProductType pt = view.requested_product;
+    if (app.products[product_index(pt)].scans.empty()) {
+        for (const ProductDescriptor &desc : product_table()) {
+            if (!app.products[product_index(desc.type)].scans.empty()) {
+                pt = desc.type;
+                break;
+            }
+        }
+    }
+    view.current_product = pt;
+    view.requested_product = pt;
+    view.num_scans = app.product_scan_count(pt);
+    const int idx = view.clamp_scan_index(view.scan_idx);
+    view.scan_idx = idx;
+    view.requested_scan_idx = idx;
+    view.last_playback_advance_time = glfwGetTime();
+
+    const size_t pi = product_index(pt);
+    auto &cache = app.scan_caches[pi];
+    if (!cache.empty()) {
+        const size_t uidx = static_cast<size_t>(idx);
+        if (!cache[uidx]) {
+            cache[uidx] = build_scan_gpu_data(app.products[pi].scans[uidx]);
+        }
+        moment_renderer.upload_scan(*cache[uidx]);
+        overlay_renderer.update_range(moment_renderer.max_range());
+    }
+
+    app.projection = AzimuthalEquidistant(app.site.lat, app.site.lon);
+    map_renderer.set_layers(build_map_layers(app));
+    app.projected_places = project_places(app.raw_places, app.projection, kMapRadiusM);
+
+    char title[160];
+    std::snprintf(title, sizeof(title), "OpenReflectivity - %s - %s",
+                  app.site.site_id.c_str(),
+                  std::filesystem::path(vol.path).filename().string().c_str());
+    glfwSetWindowTitle(window, title);
+
+    std::printf("Loaded %s: site %s (lat %.4f lon %.4f, VCP %d), %d sweeps of %s\n",
+                vol.path.c_str(), app.site.site_id.c_str(), app.site.lat, app.site.lon,
+                app.site.vcp, view.num_scans, product_name(pt));
+    std::fflush(stdout);
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -96,30 +174,6 @@ int main(int argc, char **argv) {
     }
 
     AppState app;
-    try {
-        rsl::RadarData radar_data(config.level2_path, config.site_id);
-        app.site = radar_data.site_info();
-        // The CLI-specified product must load — failure here is fatal.
-        app.products[product_index(config.product_type)] = radar_data.get_product(config.product_type);
-        // Best-effort load the other moments so runtime switching works.
-        for (const ProductDescriptor &desc : product_table()) {
-            if (desc.type == config.product_type) continue;
-            try {
-                app.products[product_index(desc.type)] = radar_data.get_product(desc.type);
-            } catch (const std::exception &ex) {
-                std::fprintf(stderr, "Warning: %s product unavailable: %s\n",
-                             desc.cli_name, ex.what());
-            }
-        }
-    } catch (const std::exception &ex) {
-        std::fprintf(stderr, "%s\n", ex.what());
-        return 1;
-    }
-
-    if (app.products[product_index(config.product_type)].scans.empty()) {
-        std::fprintf(stderr, "No scans in product '%s'\n", config.product_name.c_str());
-        return 1;
-    }
 
     GLFWwindow *window = nullptr;
     if (!initialize_glfw_window(window)) {
@@ -127,7 +181,7 @@ int main(int argc, char **argv) {
     }
 
     ViewState &view = app.view;
-    view.num_scans = app.product_scan_count(config.product_type);
+    view.num_scans = 0;
     view.current_product = config.product_type;
     view.requested_product = config.product_type;
     install_input_callbacks(window, &app);
@@ -139,29 +193,14 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    std::printf("Site %s: lat %.4f lon %.4f height %.0f m, VCP %d\n",
-                app.site.site_id.c_str(), app.site.lat, app.site.lon,
-                app.site.height_m, app.site.vcp);
-    std::printf("Loaded %d sweeps from %s. Initial product: %s.\n"
-                "[ and ] switch elevation. Sidebar Play loops sweeps with adjustable speed.\n"
+    std::printf("[ and ] switch elevation. Sidebar Play loops sweeps with adjustable speed.\n"
                 "1-6 switch product (ref / vel / sw / zdr / cc / phidp).\n"
-                "P saves a screenshot. R resets view, Esc quits.\n",
-                view.num_scans, config.site_id.c_str(), product_name(view.current_product));
-    std::printf("Active: %s sweep 0 (elevation %.2f deg)\n",
-                product_name(view.current_product),
-                app.products[product_index(view.current_product)].scans[0].elevation);
+                "Drop a Level 2 archive on the window to load it.\n"
+                "P saves a screenshot. R resets view, Esc quits.\n");
     std::fflush(stdout);
 
     int exit_code = 0;
     {
-        for (size_t i = 0; i < kProductCount; ++i) {
-            app.scan_caches[i].resize(app.products[i].scans.size());
-            app.polar_caches[i].resize(app.products[i].scans.size());
-        }
-
-        const size_t initial_pi = product_index(view.current_product);
-        app.scan_caches[initial_pi][0] = build_scan_gpu_data(app.products[initial_pi].scans[0]);
-
         for (const ProductDescriptor &desc : product_table()) {
             const size_t i = product_index(desc.type);
             app.luts[i] = make_product_lut_texture(desc.type);
@@ -177,8 +216,6 @@ int main(int argc, char **argv) {
         if (!moment_renderer.initialize()) {
             std::fprintf(stderr, "Failed to initialize moment renderer\n");
             exit_code = 1;
-        } else {
-            moment_renderer.upload_scan(*app.scan_caches[initial_pi][0]);
         }
 
         if (exit_code == 0 && !smooth_renderer.initialize()) {
@@ -201,23 +238,17 @@ int main(int argc, char **argv) {
                 std::fprintf(stderr, "Failed to initialize map renderer\n");
                 exit_code = 1;
             } else {
-                // Map layers are optional: missing assets degrade to a
-                // console warning and an empty overlay.
-                constexpr float kMapRadiusM = 600000.0f;
-                app.projection = AzimuthalEquidistant(app.site.lat, app.site.lon);
+                // raw layers load once, projection happens when the first
+                // volume tells us the site. Missing assets just warn.
                 load_polyline_file("assets/maps/states.lines", app.raw_states);
                 load_polyline_file("assets/maps/counties.lines", app.raw_counties);
                 load_places_file("assets/maps/places.pts", app.raw_places);
-
-                std::vector<MapRenderer::Layer> layers(2);
-                layers[0].lines = project_lines(app.raw_counties, app.projection, kMapRadiusM);
-                layers[0].r = 0.42f; layers[0].g = 0.45f; layers[0].b = 0.52f; layers[0].a = 0.85f;
-                layers[1].lines = project_lines(app.raw_states, app.projection, kMapRadiusM);
-                layers[1].r = 0.80f; layers[1].g = 0.83f; layers[1].b = 0.90f; layers[1].a = 1.0f;
-                map_renderer.set_layers(std::move(layers));
-                app.projected_places =
-                    project_places(app.raw_places, app.projection, kMapRadiusM);
             }
+        }
+
+        VolumeLoader loader;
+        if (exit_code == 0) {
+            loader.request(config.level2_path, config.site_id);
         }
 
         glDisable(GL_DEPTH_TEST);
@@ -241,10 +272,45 @@ int main(int argc, char **argv) {
         int smooth_uploaded_idx = -1;
 
         while (exit_code == 0 && !glfwWindowShouldClose(window)) {
+            if (std::optional<LoadedVolume> vol = loader.poll()) {
+                if (!vol->error.empty()) {
+                    app.load_error = vol->error;
+                    std::fprintf(stderr, "Load failed: %s\n", vol->error.c_str());
+                } else {
+                    apply_volume_swap(app, std::move(*vol), window,
+                                      moment_renderer, overlay_renderer, map_renderer,
+                                      smooth_uploaded_pi, smooth_uploaded_idx);
+                }
+            }
+            if (!app.pending_drop_path.empty()) {
+                if (loader.busy()) {
+                    app.load_error = "Still decoding the previous file";
+                } else {
+                    const std::string site =
+                        infer_site_id(app.pending_drop_path, app.site.site_id);
+                    loader.request(app.pending_drop_path, site);
+                }
+                app.pending_drop_path.clear();
+            }
+
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
             draw_sidebar(window, app);
+
+            if (loader.busy()) {
+                ImGuiIO &io = ImGui::GetIO();
+                ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
+                                        ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+                ImGui::SetNextWindowBgAlpha(0.7f);
+                ImGui::Begin("##loading", nullptr,
+                             ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                             ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                             ImGuiWindowFlags_NoInputs);
+                const int dots = 1 + static_cast<int>(glfwGetTime() * 2.0) % 3;
+                ImGui::Text("Decoding Level 2 archive%.*s", dots, "...");
+                ImGui::End();
+            }
 
             const double current_time = glfwGetTime();
             const bool product_changed = view.requested_product != view.current_product;
@@ -323,10 +389,11 @@ int main(int argc, char **argv) {
             glViewport(sidebar_width_fb, 0, radar_width_fb, fbh);
 
             const size_t pi = product_index(view.current_product);
+            const bool have_data = !app.products[pi].scans.empty();
             ProductRenderConfig effective = app.configs[pi];
             const bool srv_active =
                 view.current_product == rsl::ProductType::VELOCITY && app.srv_enabled;
-            if (view.current_product == rsl::ProductType::VELOCITY) {
+            if (view.current_product == rsl::ProductType::VELOCITY && have_data) {
                 const float nyq = app.products[pi].scans[static_cast<size_t>(view.scan_idx)].nyquist_vel;
                 if (nyq > 0.0f) {
                     effective.min_value = -nyq;
@@ -340,7 +407,7 @@ int main(int argc, char **argv) {
             // smoothed path lazily builds/uploads the polar texture for the
             // active sweep. Falls back to the crisp path when the sweep
             // can't be gridded.
-            bool smoothing_active = app.smoothing_enabled;
+            bool smoothing_active = app.smoothing_enabled && have_data;
             if (smoothing_active) {
                 if (smooth_uploaded_pi != static_cast<int>(pi) ||
                     smooth_uploaded_idx != view.scan_idx) {
@@ -356,7 +423,7 @@ int main(int argc, char **argv) {
                 smoothing_active = smooth_renderer.has_scan();
             }
 
-            if (view_env_pending) {
+            if (view_env_pending && moment_renderer.max_range() > 0.0f) {
                 view.zoom = env_zoom;
                 const ViewProjection base =
                     make_view_projection(moment_renderer.max_range(), radar_width_fb, fbh,
@@ -376,7 +443,9 @@ int main(int argc, char **argv) {
             }
             map_renderer.draw(projection, view.zoom);
             overlay_renderer.draw(projection);
-            legend_renderer.draw(radar_width_fb, fbh, app.luts[pi], effective);
+            if (have_data) {
+                legend_renderer.draw(radar_width_fb, fbh, app.luts[pi], effective);
+            }
 
             const float sidebar_width_win = sidebar_width_for_window(ww);
             const ViewportRect viewport_win{
@@ -388,11 +457,13 @@ int main(int argc, char **argv) {
 
             const CursorReadout readout =
                 compute_cursor_readout(app, projection, viewport_win, effective);
-            draw_inspector_overlay(readout, effective.unit_label, viewport_win);
+            if (have_data) {
+                draw_inspector_overlay(readout, effective.unit_label, viewport_win);
+            }
 
             // legend bar geometry mirrors LegendRenderer::draw, converted
             // from framebuffer pixels (origin bottom-left) to window coords
-            {
+            if (have_data) {
                 const float scale_y = (wh > 0) ? static_cast<float>(fbh) / static_cast<float>(wh) : 1.0f;
                 const float bar_h_fb = std::max(80.0f, static_cast<float>(fbh) * 0.6f);
                 const float bar_x_win =
@@ -416,14 +487,16 @@ int main(int argc, char **argv) {
                 app.screenshot_requested = false;
                 save_screenshot_png(fbw, fbh);
             }
-            // Developer hook: OPENREFL_AUTOSHOT=<path> captures one frame
-            // shortly after startup, for non-interactive visual checks.
-            if (autoshot_path && frame_counter == kAutoshotFrame) {
-                save_screenshot_png_to(fbw, fbh, autoshot_path);
-                std::printf("Saved autoshot: %s\n", autoshot_path);
-                std::fflush(stdout);
+            // OPENREFL_AUTOSHOT=<path> grabs one frame shortly after the
+            // first volume renders, handy for quick visual checks
+            if (have_data) {
+                if (autoshot_path && frame_counter == kAutoshotFrame) {
+                    save_screenshot_png_to(fbw, fbh, autoshot_path);
+                    std::printf("Saved autoshot: %s\n", autoshot_path);
+                    std::fflush(stdout);
+                }
+                ++frame_counter;
             }
-            ++frame_counter;
 
             glfwSwapBuffers(window);
             glfwPollEvents();

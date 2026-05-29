@@ -211,6 +211,13 @@ void draw_sidebar(GLFWwindow *window, AppState &app) {
         app.screenshot_requested = true;
     }
 
+    if (!app.load_error.empty()) {
+        ImGui::Separator();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.45f, 0.40f, 1.0f));
+        ImGui::TextWrapped("%s", app.load_error.c_str());
+        ImGui::PopStyleColor();
+    }
+
     ImGui::Separator();
     ImGui::Text("Active: %s", product_label(view.current_product));
     ImGui::Text("Sweep: %d / %d", view.scan_idx + 1, app.product_scan_count(view.current_product));

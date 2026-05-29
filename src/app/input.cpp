@@ -121,6 +121,12 @@ void window_focus_callback(GLFWwindow *win, int focused) {
     ImGui_ImplGlfw_WindowFocusCallback(win, focused);
 }
 
+void drop_callback(GLFWwindow *win, int count, const char **paths) {
+    AppState *app = app_from_window(win);
+    if (!app || count <= 0) return;
+    app->pending_drop_path = paths[0];
+}
+
 } // namespace
 
 void install_input_callbacks(GLFWwindow *window, AppState *app) {
@@ -132,4 +138,5 @@ void install_input_callbacks(GLFWwindow *window, AppState *app) {
     glfwSetCharCallback(window, char_callback);
     glfwSetCursorEnterCallback(window, cursor_enter_callback);
     glfwSetWindowFocusCallback(window, window_focus_callback);
+    glfwSetDropCallback(window, drop_callback);
 }
