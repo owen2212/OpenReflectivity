@@ -1,5 +1,6 @@
 #include "app/view_state.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 void ViewState::reset_view() {
@@ -40,6 +41,15 @@ void ViewState::request_scan_delta_wrapped(int delta) {
     int next_idx = (current_idx + delta) % num_scans;
     if (next_idx < 0) next_idx += num_scans;
     requested_scan_idx = next_idx;
+}
+
+void ViewState::request_volume_delta(int delta) {
+    if (num_volumes <= 0) {
+        requested_volume_idx = 0;
+        return;
+    }
+    requested_volume_idx =
+        std::clamp(requested_volume_idx + delta, 0, num_volumes - 1);
 }
 
 int ViewState::clamp_scan_index(int idx) const {

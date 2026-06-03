@@ -18,6 +18,16 @@ struct ViewState {
     double last_playback_advance_time = 0.0;
     float playback_sweeps_per_second = 1.0f;
 
+    // time dimension across a multi-volume set. Time playback advances
+    // volumes (holding the same elevation) instead of sweeps.
+    enum class PlaybackMode { Sweeps, Time };
+    PlaybackMode playback_mode = PlaybackMode::Sweeps;
+    int volume_idx = -1;
+    int requested_volume_idx = 0;
+    int num_volumes = 0;
+
+    void request_volume_delta(int delta);
+
     rsl::ProductType current_product = rsl::ProductType::REFLECTIVITY;
     rsl::ProductType requested_product = rsl::ProductType::REFLECTIVITY;
 

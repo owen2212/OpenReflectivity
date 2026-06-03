@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 #include <GLFW/glfw3.h>
@@ -9,6 +10,7 @@
 
 #include "app/app_state.hpp"
 #include "app/imgui_setup.hpp"
+#include "app/volume_set.hpp"
 
 namespace {
 
@@ -46,7 +48,7 @@ float sidebar_width_for_window(int width) {
     return std::min(kSidebarWidth, std::max(0.0f, static_cast<float>(width) - kMinRadarWidth));
 }
 
-void draw_sidebar(GLFWwindow *window, AppState &app) {
+void draw_sidebar(GLFWwindow *window, AppState &app, const VolumeSet &volumes) {
     ViewState &view = app.view;
     int window_width = 0;
     int window_height = 0;
@@ -117,7 +119,9 @@ void draw_sidebar(GLFWwindow *window, AppState &app) {
     if (!can_step_prev) ImGui::EndDisabled();
 
     ImGui::SameLine();
-    const bool can_toggle_playback = scan_count > 1 || view.playback_active;
+    const bool time_mode = view.playback_mode == ViewState::PlaybackMode::Time;
+    const bool can_toggle_playback =
+        (time_mode ? view.num_volumes > 1 : scan_count > 1) || view.playback_active;
     if (!can_toggle_playback) ImGui::BeginDisabled();
     if (ImGui::Button(view.playback_active ? "Pause" : "Play", ImVec2(button_width, 0.0f))) {
         view.playback_active = !view.playback_active;
@@ -159,6 +163,30 @@ void draw_sidebar(GLFWwindow *window, AppState &app) {
             }
         }
         ImGui::EndChild();
+    }
+
+    if (view.num_volumes > 1) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("TIME");
+        int mode = view.playback_mode == ViewState::PlaybackMode::Time ? 1 : 0;
+        if (ImGui::RadioButton("Sweeps", &mode, 0)) {
+            view.playback_mode = ViewState::PlaybackMode::Sweeps;
+        }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Time", &mode, 1)) {
+            view.playback_mode = ViewState::PlaybackMode::Time;
+        }
+
+        const std::string label =
+            volumes.time_label(view.requested_volume_idx) + " UTC";
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::SliderInt("##volume_scrub", &view.requested_volume_idx, 0,
+                             view.num_volumes - 1, label.c_str(),
+                             ImGuiSliderFlags_AlwaysClamp)) {
+            view.last_playback_advance_time = glfwGetTime();
+        }
+        ImGui::TextDisabled("Volume %d / %d  (, and . step)",
+                            view.requested_volume_idx + 1, view.num_volumes);
     }
 
     ImGui::Spacing();

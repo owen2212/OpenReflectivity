@@ -99,6 +99,12 @@ void key_callback(GLFWwindow *win, int key, int sc, int action, int mods) {
     } else if (key == GLFW_KEY_RIGHT_BRACKET) {
         view.request_scan_delta(1);
         view.last_playback_advance_time = glfwGetTime();
+    } else if (key == GLFW_KEY_COMMA) {
+        view.request_volume_delta(-1);
+        view.last_playback_advance_time = glfwGetTime();
+    } else if (key == GLFW_KEY_PERIOD) {
+        view.request_volume_delta(1);
+        view.last_playback_advance_time = glfwGetTime();
     } else if (action == GLFW_PRESS) {
         for (const ProductDescriptor &desc : product_table()) {
             if (key == desc.hotkey) {

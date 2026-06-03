@@ -57,6 +57,7 @@ add_executable(app
     src/app/sidebar.cpp
     src/app/view_state.cpp
     src/app/volume_loader.cpp
+    src/app/volume_set.cpp
     src/rsl/rsl_wrapper.cpp
     src/gl/buffer.cpp
     src/gl/texture.cpp

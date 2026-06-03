@@ -24,6 +24,7 @@
 #include "app/sidebar.hpp"
 #include "app/view_state.hpp"
 #include "app/volume_loader.hpp"
+#include "app/volume_set.hpp"
 #include "rsl/rsl_wrapper.hpp"
 
 namespace {
@@ -100,22 +101,68 @@ std::vector<MapRenderer::Layer> build_map_layers(const AppState &app) {
     return layers;
 }
 
-// Installs a freshly decoded volume: replaces products, resets caches,
-// re-projects map layers for the (possibly new) site, uploads the current
-// sweep, and refreshes window chrome. Used for the startup load and for
-// every drag-and-drop load alike.
-void apply_volume_swap(AppState &app, LoadedVolume &&vol, GLFWwindow *window,
-                       MomentRenderer &moment_renderer, OverlayRenderer &overlay_renderer,
-                       MapRenderer &map_renderer, int &smooth_uploaded_pi,
-                       int &smooth_uploaded_idx) {
-    ViewState &view = app.view;
-    app.products = std::move(vol.products);
-    app.site = vol.site;
-    app.load_error.clear();
-    for (size_t i = 0; i < kProductCount; ++i) {
-        app.scan_caches[i].assign(app.products[i].scans.size(), std::nullopt);
-        app.polar_caches[i].assign(app.products[i].scans.size(), std::nullopt);
+// elevation of scan slot idx, checking every product since a NULL sweep in
+// one product can still have the elevation recorded in another
+bool slot_elevation(const AppState &app, size_t idx, float &out_elev) {
+    for (const rsl::Product &prod : app.products) {
+        if (idx < prod.scans.size() && !prod.scans[idx].radials.empty()) {
+            out_elev = prod.scans[idx].elevation;
+            return true;
+        }
     }
+    return false;
+}
+
+// Swap the target volume's decoded data in and park the previously active
+// volume's data (and warm caches) back in its entry. No deep copies.
+bool activate_volume(AppState &app, VolumeSet &volumes, int target, GLFWwindow *window,
+                     MomentRenderer &moment_renderer, OverlayRenderer &overlay_renderer,
+                     MapRenderer &map_renderer, int &smooth_uploaded_pi,
+                     int &smooth_uploaded_idx) {
+    if (target < 0 || target >= volumes.size()) return false;
+    if (target == volumes.active()) return true;
+    VolumeEntry &entry = volumes.entry(target);
+    if (!entry.data) return false;
+
+    ViewState &view = app.view;
+
+    // remember the physical elevation so the step survives VCP changes
+    float prev_elev = 0.0f;
+    const bool have_prev_elev =
+        view.scan_idx >= 0 && slot_elevation(app, static_cast<size_t>(view.scan_idx), prev_elev);
+
+    // give the current volume's data and caches back to its entry
+    const int prev_active = volumes.active();
+    if (prev_active >= 0) {
+        VolumeEntry &prev = volumes.entry(prev_active);
+        prev.data = std::make_unique<LoadedVolume>();
+        prev.data->path = prev.path;
+        prev.data->site = app.site;
+        prev.data->products = std::move(app.products);
+        prev.gpu_cache = std::move(app.scan_caches);
+        prev.polar_cache = std::move(app.polar_caches);
+    }
+
+    const bool site_changed =
+        std::fabs(entry.data->site.lat - app.site.lat) > 1e-9 ||
+        std::fabs(entry.data->site.lon - app.site.lon) > 1e-9;
+    app.products = std::move(entry.data->products);
+    app.site = entry.data->site;
+    app.scan_caches = std::move(entry.gpu_cache);
+    app.polar_caches = std::move(entry.polar_cache);
+    entry.data.reset();
+    for (size_t i = 0; i < kProductCount; ++i) {
+        if (app.scan_caches[i].size() != app.products[i].scans.size()) {
+            app.scan_caches[i].assign(app.products[i].scans.size(), std::nullopt);
+        }
+        if (app.polar_caches[i].size() != app.products[i].scans.size()) {
+            app.polar_caches[i].assign(app.products[i].scans.size(), std::nullopt);
+        }
+    }
+    volumes.set_active(target);
+    view.volume_idx = target;
+    view.requested_volume_idx = target;
+    app.load_error.clear();
     smooth_uploaded_pi = -1;
     smooth_uploaded_idx = -1;
 
@@ -132,13 +179,26 @@ void apply_volume_swap(AppState &app, LoadedVolume &&vol, GLFWwindow *window,
     }
     view.current_product = pt;
     view.requested_product = pt;
+    const size_t pi = product_index(pt);
     view.num_scans = app.product_scan_count(pt);
-    const int idx = view.clamp_scan_index(view.scan_idx);
+
+    // pick the nearest tilt to the previous elevation, not the same index
+    int idx = view.clamp_scan_index(view.scan_idx);
+    if (have_prev_elev) {
+        float best = 1e9f;
+        for (size_t i = 0; i < app.products[pi].scans.size(); ++i) {
+            float elev = 0.0f;
+            if (!slot_elevation(app, i, elev)) continue;
+            const float d = std::fabs(elev - prev_elev);
+            if (d < best) {
+                best = d;
+                idx = static_cast<int>(i);
+            }
+        }
+    }
     view.scan_idx = idx;
     view.requested_scan_idx = idx;
-    view.last_playback_advance_time = glfwGetTime();
 
-    const size_t pi = product_index(pt);
     auto &cache = app.scan_caches[pi];
     if (!cache.empty()) {
         const size_t uidx = static_cast<size_t>(idx);
@@ -149,20 +209,25 @@ void apply_volume_swap(AppState &app, LoadedVolume &&vol, GLFWwindow *window,
         overlay_renderer.update_range(moment_renderer.max_range());
     }
 
-    app.projection = AzimuthalEquidistant(app.site.lat, app.site.lon);
-    map_renderer.set_layers(build_map_layers(app));
-    app.projected_places = project_places(app.raw_places, app.projection, kMapRadiusM);
+    // reprojecting ~200k map vertices takes a few ms, skip it when stepping
+    // volumes within one site so time playback stays smooth
+    if (site_changed) {
+        app.projection = AzimuthalEquidistant(app.site.lat, app.site.lon);
+        map_renderer.set_layers(build_map_layers(app));
+        app.projected_places = project_places(app.raw_places, app.projection, kMapRadiusM);
+    }
 
     char title[160];
     std::snprintf(title, sizeof(title), "OpenReflectivity - %s - %s",
                   app.site.site_id.c_str(),
-                  std::filesystem::path(vol.path).filename().string().c_str());
+                  std::filesystem::path(entry.path).filename().string().c_str());
     glfwSetWindowTitle(window, title);
 
-    std::printf("Loaded %s: site %s (lat %.4f lon %.4f, VCP %d), %d sweeps of %s\n",
-                vol.path.c_str(), app.site.site_id.c_str(), app.site.lat, app.site.lon,
+    std::printf("Active volume %d/%d: %s (site %s, VCP %d, %d sweeps of %s)\n",
+                target + 1, volumes.size(), entry.path.c_str(), app.site.site_id.c_str(),
                 app.site.vcp, view.num_scans, product_name(pt));
     std::fflush(stdout);
+    return true;
 }
 
 } // namespace
@@ -247,8 +312,15 @@ int main(int argc, char **argv) {
         }
 
         VolumeLoader loader;
+        VolumeSet volumes;
         if (exit_code == 0) {
-            loader.request(config.level2_path, config.site_id);
+            if (volumes.open(config.level2_path)) {
+                view.num_volumes = volumes.size();
+                view.requested_volume_idx = 0;
+            } else {
+                app.load_error = "No Level 2 archives found at " + config.level2_path;
+                std::fprintf(stderr, "%s\n", app.load_error.c_str());
+            }
         }
 
         glDisable(GL_DEPTH_TEST);
@@ -274,31 +346,48 @@ int main(int argc, char **argv) {
         while (exit_code == 0 && !glfwWindowShouldClose(window)) {
             if (std::optional<LoadedVolume> vol = loader.poll()) {
                 if (!vol->error.empty()) {
+                    volumes.fail_request(vol->path);
                     app.load_error = vol->error;
                     std::fprintf(stderr, "Load failed: %s\n", vol->error.c_str());
                 } else {
-                    apply_volume_swap(app, std::move(*vol), window,
-                                      moment_renderer, overlay_renderer, map_renderer,
-                                      smooth_uploaded_pi, smooth_uploaded_idx);
+                    // results from a set replaced mid-flight match nothing
+                    // and get dropped
+                    volumes.store_result(std::move(*vol));
                 }
             }
             if (!app.pending_drop_path.empty()) {
-                if (loader.busy()) {
-                    app.load_error = "Still decoding the previous file";
+                if (volumes.open(app.pending_drop_path)) {
+                    view.num_volumes = volumes.size();
+                    view.volume_idx = -1;
+                    view.requested_volume_idx = 0;
+                    if (view.num_volumes <= 1) {
+                        view.playback_mode = ViewState::PlaybackMode::Sweeps;
+                    }
+                    app.load_error.clear();
                 } else {
-                    const std::string site =
-                        infer_site_id(app.pending_drop_path, app.site.site_id);
-                    loader.request(app.pending_drop_path, site);
+                    app.load_error = "Nothing loadable at " + app.pending_drop_path;
                 }
                 app.pending_drop_path.clear();
+            }
+            volumes.pump(loader,
+                         app.site.site_id.empty() ? config.site_id : app.site.site_id,
+                         view.requested_volume_idx);
+            if (view.requested_volume_idx != volumes.active()) {
+                // no-op if the target isn't decoded yet, the pump is
+                // fetching it and the jump lands on a later frame
+                if (activate_volume(app, volumes, view.requested_volume_idx, window,
+                                    moment_renderer, overlay_renderer, map_renderer,
+                                    smooth_uploaded_pi, smooth_uploaded_idx)) {
+                    volumes.evict();
+                }
             }
 
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
-            draw_sidebar(window, app);
+            draw_sidebar(window, app, volumes);
 
-            if (loader.busy()) {
+            if (loader.busy() && !volumes.decoded(view.requested_volume_idx)) {
                 ImGuiIO &io = ImGui::GetIO();
                 ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
                                         ImGuiCond_Always, ImVec2(0.5f, 0.5f));
@@ -319,10 +408,22 @@ int main(int argc, char **argv) {
                            kMinPlaybackSweepsPerSecond, kMaxPlaybackSweepsPerSecond);
             const double playback_interval_seconds =
                 1.0 / static_cast<double>(playback_sweeps_per_second);
-            if (!product_changed && view.playback_active && view.num_scans > 1 &&
+            if (!product_changed && view.playback_active &&
                 current_time - view.last_playback_advance_time >= playback_interval_seconds) {
-                view.request_scan_delta_wrapped(1);
-                view.last_playback_advance_time = current_time;
+                if (view.playback_mode == ViewState::PlaybackMode::Time) {
+                    // hold until the next volume is decoded so playback
+                    // doesn't skip
+                    if (view.num_volumes > 1) {
+                        const int next = (view.requested_volume_idx + 1) % view.num_volumes;
+                        if (volumes.decoded(next)) {
+                            view.requested_volume_idx = next;
+                            view.last_playback_advance_time = current_time;
+                        }
+                    }
+                } else if (view.num_scans > 1) {
+                    view.request_scan_delta_wrapped(1);
+                    view.last_playback_advance_time = current_time;
+                }
             }
 
             const bool scan_changed = view.requested_scan_idx != view.scan_idx;
